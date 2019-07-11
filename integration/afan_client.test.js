@@ -73,9 +73,10 @@ describe('aFan Client Test', () => {
   describe('tx_invest', () => {
     it('send_one', () => {
       const afanClient = new AfanClient(server1)
-      sleep(100)
+      
       return set('/afan/balance/uid0', 10).then(() => set('/afan/balance/uid1', 10))
           .then(() => afanClient.tx_invest('uid0', 'uid1', 1))
+          .then(() => sleep(200))
           .then(() => get('/afan'))
           .then((res) => {
             const result = require('./data/tx_invest_send_one_result.js')
@@ -109,7 +110,7 @@ describe('aFan Client Test', () => {
           .then(() => set('/afan/investors/uid1/uid2', 3))
           .then(() => set('/afan/investors/uid1/uid3', 7))
           .then(() => afanClient.tx_crushOnPost('uid0', 'uid1', 'post0', 20))
-          .then(() => {sleep(100)})
+          .then(() => sleep(200))
           .then(() => get('/afan'))
           .then((res) => {
             const result = require('./data/tx_crushOnPost_two_fans_result.js')
