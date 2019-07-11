@@ -9,11 +9,14 @@ cd tracker-server/
 docker build -t  ainblockchain/tracker-server .
 
 ** To pull docker image **
+
 docker pull ainblockchain/tracker-server
 
 ** To run docker image **
 
 docker run  --network="host" -d ainblockchain/tracker-server:latest
+
+** Description **
 
 By default this tracker-server service is queriable by blockchain-database instances at ws://localhost:3001 
 
@@ -23,6 +26,7 @@ By default this tracker-server service is queriable by blockchain-database insta
 Operates a single peer node instance of the AIN blockchain. A single blockchain-database instance processes incoming transaction requests and maintaines a local copy of the entire blockchain blockchain. The blockchain-database first queries the tracker-server for ip addresses of other peers, and then syncs it's local blockchain to the network consensus blockchain. If the blockchain specifies a "STAKE" argument on startup, it will then begin to take part in the forging/validating process for new blocks.
 
 ** To run test cases **
+
 npm init && npm run test
 
 ** To build docker image locally**
@@ -30,11 +34,14 @@ npm init && npm run test
 docker build -t  ainblockchain/blockchain-database .
 
 ** To pull docker image **
+
 docker pull ainblockchain/blockchain-database
 
 ** To run docker image **
 
  docker run -e LOG=true -e STAKE=250 -e TRACKER_IP="ws://<ip_address_of_tracker_server>:3001" --network="host" -d ainblockchain/blockchain-database:latest
+
+ ** Description **
 
 Optional arguments:
     STAKE: Set if you would like node participate in the block forg/validating process. Likelihood of node being chosen as forger is propotional to amount staked
