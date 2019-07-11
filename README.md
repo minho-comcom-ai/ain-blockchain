@@ -81,8 +81,6 @@ POST https://<ip_address>:8080/batch with json_body {"batch_list": [{"op": "set"
 
 POST https://<ip_address>:8080/increase with json_body {"diff": {"test/increase/first/level": 10, "test/increase/first/level2": 20}}
 
-'''
-
   
 
 ## Postgres Database (will move to different repositoy)
