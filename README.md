@@ -5,15 +5,24 @@ NOTE: Tracker Server must be started first before starting any blockchain-databa
 
 ** To build docker image locally**
 
-cd tracker-server/ 
-docker build -t  ainblockchain/tracker-server .
+'''
+    cd tracker-server/ 
+    docker build -t  ainblockchain/tracker-server .
+'''
 
 ** To pull docker image **
-docker pull ainblockchain/tracker-server
+
+'''
+    docker pull ainblockchain/tracker-server
+'''
 
 ** To run docker image **
 
-docker run  --network="host" -d ainblockchain/tracker-server:latest
+'''
+    docker run  --network="host" -d ainblockchain/tracker-server:latest
+'''
+
+** Description **
 
 By default this tracker-server service is queriable by blockchain-database instances at ws://localhost:3001 
 
@@ -23,32 +32,52 @@ By default this tracker-server service is queriable by blockchain-database insta
 Operates a single peer node instance of the AIN blockchain. A single blockchain-database instance processes incoming transaction requests and maintaines a local copy of the entire blockchain blockchain. The blockchain-database first queries the tracker-server for ip addresses of other peers, and then syncs it's local blockchain to the network consensus blockchain. If the blockchain specifies a "STAKE" argument on startup, it will then begin to take part in the forging/validating process for new blocks.
 
 ** To run test cases **
-npm init && npm run test
+
+'''
+    npm init && npm run test
+'''
 
 ** To build docker image locally**
 
-docker build -t  ainblockchain/blockchain-database .
+'''
+    docker build -t  ainblockchain/blockchain-database .
+'''
 
 ** To pull docker image **
-docker pull ainblockchain/blockchain-database
+
+'''
+    docker pull ainblockchain/blockchain-database
+'''
 
 ** To run docker image **
+'''
+    docker run -e LOG=true -e STAKE=250 -e TRACKER_IP="ws://<ip_address_of_tracker_server>:3001" --network="host" -d ainblockchain/blockchain-database:latest
+'''
 
- docker run -e LOG=true -e STAKE=250 -e TRACKER_IP="ws://<ip_address_of_tracker_server>:3001" --network="host" -d ainblockchain/blockchain-database:latest
+ ** Description **
 
-Optional arguments:
+### Optional arguments:
+
     STAKE: Set if you would like node participate in the block forg/validating process. Likelihood of node being chosen as forger is propotional to amount staked
     LOG: Set to true if you want blockchain-database to maintain log files
 
-To enter docker container and see blockchain files
+### To enter docker container and see blockchain files
+
+'''
     docker exec -it <container_id> /bin/bash
     cd blockchain/.blockchains/8080/
+'''
 
-To enter docker container and see log files
+### To enter docker container and see log files
+
+'''
     docker exec -it <container_id> /bin/bash
     cat client/.logs/8080debug.log
+'''
 
-The blockchain database exposes the following endpoint:
+### The blockchain database exposes the following endpoint:
+
+'''
     GET https://<ip_address>:8080/blocks -> See last 10 blocks in blockchain
     GET https://<ip_address>:8080/blocks?from=1&to=100 -> psql -h localhost -U postgres -d postgresQuery for specific list of blocks from blockchain
     GET https://<ip_address>:8080/get?ref=/database/path/to/query -> Query for data at specific database location
@@ -56,22 +85,26 @@ The blockchain database exposes the following endpoint:
     POST https://<ip_address>:8080/update with json_body  {"data": {"test/increase/first/level": 10, "test/increase/first/level2": 20}}
     POST https://<ip_address>:8080/batch with json_body {"batch_list": [{"op": "set", "ref": "test/comeonnnnnnn", "value": "testme"}, {"op": "update", "data": {"test/b/u": 10000}}]}
     POST https://<ip_address>:8080/increase with json_body {"diff": {"test/increase/first/level": 10, "test/increase/first/level2": 20}}
-
- 
+'''
 
 ## Postgres Database (will move to different repositoy)
 Database which will be used by ain_scan to store data regarding blocks and transactions. CUrrently defines schemas for database of blocks and transactions
 
 ** To build docker image locally**
 
-cd postgres/ 
-docker build -t  ainblockchain/postgres .
+'''
+    cd postgres/ 
+    docker build -t  ainblockchain/postgres .
+'''
 
 ** To run docker image **
 
-docker run --rm   --name pg-docker -e POSTGRES_PASSWORD=postgres -d -p 5432:5432   ainblockchain/postgres
+'''
+    docker run --rm   --name pg-docker -e POSTGRES_PASSWORD=postgres -d -p 5432:5432   ainblockchain/postgres
+'''
 
 ** To enter postgres container and check default schemas **
 
-psql -h localhost -U postgres -d postgres
-
+'''
+    psql -h localhost -U postgres -d postgres
+'''
