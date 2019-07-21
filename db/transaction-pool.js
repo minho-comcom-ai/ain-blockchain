@@ -11,10 +11,6 @@ class TransactionPool {
 
     addTransaction(transaction, verify=true) {
         // Quick verification of transaction on entry
-        if(this.isAlreadyAdded(transaction)){
-            //console.log("Transaction already received")
-            return false
-        }
 
         if ( verify && (!Transaction.verifyTransaction(transaction))){
             console.log("Invalid transaction")
@@ -26,10 +22,6 @@ class TransactionPool {
         this.transactions[transaction.address].push(transaction)
 
         return true
-    }
-
-    clear() {
-        this.transactions = {}
     }
     
     isAlreadyAdded(transaction){

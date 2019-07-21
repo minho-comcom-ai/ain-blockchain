@@ -34,12 +34,12 @@ class DB {
             })
         } catch (error) {
             if (error instanceof TypeError){
-                //console.log(error.message)
+                console.log(error.message)
                 return null
             }
             throw error
         }
-        return result ? result : null
+        return result ? JSON.parse(JSON.stringify(result)) : null
     }
 
     stake(stakeAmount){
@@ -125,10 +125,9 @@ class DB {
         return results
     }
 
-    createTransaction(data, transactionPool){
-        let transaction = Transaction.newTransaction(this, data)
-        transactionPool.addTransaction(transaction, false)
-        return transaction
+    createTransaction(data, dependantTransactions=null){
+        dependantTransactions = dependantTransactions !== null ? dependantTransactions: []
+        return Transaction.newTransaction(this, data, dependantTransactions)
     }
 
     sign(dataHash) {
@@ -157,7 +156,7 @@ class DB {
 
     addTransactionPool(transactions){
         transactions.forEach(trans => {
-            this.execute(trans.output, trans.address)
+            this.execute(trans.output, trans.address, trans.timestamp)
         })
     }
 
@@ -249,6 +248,8 @@ class DB {
 
         var permission = eval(ruleString)
         if (!permission){
+            console.log(this.db)
+            console.log(newValue)
             console.log(`"${ruleString}" evaluated as false`)
         }
         return permission

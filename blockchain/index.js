@@ -7,6 +7,7 @@ const fs = require('fs')
 const zipper = require("zip-local")
 const naturalSort = require("node-natural-sort")
 const CHAIN_SUBSECT_LENGTH = 20
+const {VOTING_STATUS} = require("../config")
 
 class Blockchain{
 
@@ -14,6 +15,8 @@ class Blockchain{
         this.chain = [ForgedBlock.genesis()];
         this.blockchain_dir = blockchain_dir
         this.backUpDB = null
+        this._proposedBlock = null
+        this.status = VOTING_STATUS.START_UP
         let new_chain
         if(this.createBlockchainDir()){
             new_chain =  Blockchain.loadChain(this._blockchainDir())
@@ -127,7 +130,7 @@ class Blockchain{
     requestBlockchainSection(lastBlock){
         console.log(`Current chain height: ${this.height()}: Requesters height ${lastBlock.height}\t hash ${lastBlock.lastHash.substring(0, 5)}`)
         var blockFiles = Blockchain.getBlockFiles(this._blockchainDir())
-        if (blockFiles.length > lastBlock.height && blockFiles[lastBlock.height].indexOf(`${lastBlock.height}-${lastBlock.lastHash.substring(0, 5)}-${lastBlock.hash.substring(0, 5)}`) < 0){
+        if (blockFiles.length < lastBlock.height && blockFiles[lastBlock.height].indexOf(`${lastBlock.height}-${lastBlock.lastHash.substring(0, 5)}-${lastBlock.hash.substring(0, 5)}`) < 0){
             console.log("Invalid blockchain request")
             return 
         }
@@ -210,6 +213,34 @@ class Blockchain{
             })
         }
         return chain
+    }
+
+
+
+
+
+
+
+    forgeBlock(db, tp){
+        var data = tp.validTransactions()
+        var blockHeight = this.height() + 1
+        return ForgedBlock.forgeBlock(data, db, blockHeight, this.lastBlock(), db.publicKey, Object.keys(db.get("_voting").validators), db.get("_voting").threshold)
+   
+    }
+
+    addProposedBlock(block){
+        this._proposedBlock = block
+    }
+
+    getProposedBlock(hash){
+        if(this._proposedBlock !== null && this._proposedBlock.hash === hash){
+            return this._proposedBlock
+        }
+        return null
+    }
+
+    isValidBlock(block){
+        return ForgedBlock.validateBlock(block, this)
     }
 }
 
