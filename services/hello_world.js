@@ -1,6 +1,6 @@
 // All functions return either nothign or a transaction which is broadcast to the network
 
-module.exports =  function services(db, blockchain, tp){
+module.exports =  function services(db, blockchain, tp, p2p){
 
     return {
         "test": {

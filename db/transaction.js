@@ -2,13 +2,14 @@ const ChainUtil = require('../chain-util')
 
 class Transaction {
 
-    constructor(timestamp, data, address, signature, nonce){
+    constructor(timestamp, data, address, signature, nonce, dependantTransactions){
         this.id = ChainUtil.id()
         this.timestamp = timestamp
         this.output = data
         this.address = address
         this.signature = signature
         this.nonce = nonce
+        this.dependantTransactions  = dependantTransactions
     }
 
     toString(){
@@ -21,8 +22,8 @@ class Transaction {
     }
 
 
-    static newTransaction(db, data) {
-        var transaction =  new this(Date.now(), data, db.publicKey, db.sign(ChainUtil.hash(data)), db.nonce)
+    static newTransaction(db, data, dependantTransactions) {
+        var transaction =  new this(Date.now(), data, db.publicKey, db.sign(ChainUtil.hash(data)), db.nonce, dependantTransactions)
         db.nonce++
         return transaction
     } 

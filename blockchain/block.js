@@ -28,6 +28,11 @@ class ForgedBlock extends Block {
         this.validators = validators
         this.threshold = threshold
     }
+    
+    addValidatingTransaction(transaction){
+        transaction.dependantTransactions.length = 0
+        this.validatorTransactions.push(transaction)
+    }
 
 
     static forgeBlock(data, db, height, lastBlock, forger, validators, threshold){

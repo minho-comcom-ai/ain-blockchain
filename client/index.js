@@ -50,6 +50,8 @@ const express = require('express');
 // var bodyParser = require('body-parser')
 const P2pServer = require('../server')
 const Database = require('../db')
+const ServiceExecutor = require("../service_executor")
+
 // Define peer2peer server here which will broadcast changes in the database
 // and also track which servers are in the network
 
@@ -70,6 +72,9 @@ const bc = new Blockchain(String(PORT));
 const tp = new TransactionPool()
 const db = Database.getDatabase(bc, tp)
 const p2pServer = new P2pServer(db, bc, tp, process.env.STAKE? Number(process.env.STAKE) : null)
+const se = new ServiceExecutor(db, bc, tp, p2pServer)
+p2pServer.setServiceExecutor(se)
+
 
 app.get('/', (req, res, next) => {
   try{
@@ -149,8 +154,7 @@ app.get('/stake', (req, res, next) => {
 
 app.post('/update', (req, res, next) => {
   var data = req.body.data;
-  let result = db.update(data)
-  createTransaction({op: "update", data})
+  var result = createTransaction({op: "update", data})
   res
     .status(201)
     .set('Content-Type', 'application/json')
@@ -164,11 +168,7 @@ app.get('/get', (req, res, next) => {
   try{
     result = db.get(req.query.ref)
   } catch (error){
-    if(error instanceof InvalidPerissonsError){
-      statusCode = 401
-    } else {
-      statusCode = 400
-    }
+    statusCode = 400
     console.log(error.stack)
   }
   res
@@ -183,8 +183,7 @@ app.post('/set', (req, res, next) => {
   try{
     var ref = req.body.ref;
     var value = req.body.value
-    db.set(ref, value)
-    createTransaction({op: "set", ref, value})
+    var result = createTransaction({op: "set", ref, value})
   } catch (error){
     if(error instanceof InvalidPerissonsError){
       statusCode = 401
@@ -200,15 +199,14 @@ app.post('/set', (req, res, next) => {
 app.post('/batch', (req, res, next) => {
   var batch_list = req.body.batch_list
   try{
-    var result_list = db.batch(batch_list)
-    createTransaction({op: "batch", batch_list})
+    var result  = createTransaction({op: "batch", batch_list})
   }catch (err){
     console.log(err)
   }
   res
     .status(200)
     .set('Content-Type', 'application/json')
-    .send(result_list)
+    .send(result)
     .end();
 })
 
@@ -217,8 +215,7 @@ app.post('/increase', (req, res, next) => {
   let result
   try{
     var diff = req.body.diff;
-    result = db.increase(diff)
-    createTransaction({op: "increase", diff})
+    result = createTransaction({op: "increase", diff})
   } catch (error){
     if(error instanceof InvalidPerissonsError){
       statusCode = 401
@@ -263,8 +260,9 @@ function broadcastBatchTransaction(){
   if (transactionBatch.length > 0){
     var batch_list =  JSON.parse(JSON.stringify(transactionBatch))
     transactionBatch.length = 0
-    let transaction =  db.createTransaction({type: "BATCH", batch_list}, tp)
-    p2pServer.broadcastTransaction(transaction)
+    let transaction =  db.createTransaction({type: "BATCH", batch_list})
+    p2pServer.executeTrans(transaction)
+    return []
   }
 }
 
@@ -273,19 +271,20 @@ function createSingularTransaction(trans){
   let transaction
   switch(trans.op){
     case "batch":
-      transaction = db.createTransaction({type: "BATCH", batch_list: trans.batch_list}, tp)
+      transaction = db.createTransaction({type: "BATCH", batch_list: trans.batch_list})
       break
     case "increase":
-      transaction = db.createTransaction({type: "INCREASE", diff: trans.diff}, tp)
+      transaction = db.createTransaction({type: "INCREASE", diff: trans.diff})
       break
     case "update":
-      transaction = db.createTransaction({type: "UPDATE", data: trans.data}, tp)
+      transaction = db.createTransaction({type: "UPDATE", data: trans.data})
       break
     case "set":
-      transaction = db.createTransaction({type: "SET", ref: trans.ref, value: trans.value}, tp)
+      transaction = db.createTransaction({type: "SET", ref: trans.ref, value: trans.value})
       break
   }
-  p2pServer.broadcastTransaction(transaction)
+  p2pServer.executeTrans(transaction)
+  return []
 }
 
 let createTransaction 
@@ -303,3 +302,4 @@ setInterval(() => {
 
   LAST_NONCE = CURRENT_NONCE
 }, 1000)
+
