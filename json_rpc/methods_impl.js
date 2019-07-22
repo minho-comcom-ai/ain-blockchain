@@ -14,8 +14,6 @@ function bcProc(bc) {
         getBlocks(query) {
             const to = ("to" in query) ? query.to: bc.length
             const from = ("from" in query) ? query.from: 0
-            console.log(from)
-            console.log(2)
             return bc.getChainSection(from, to)
 
         },
