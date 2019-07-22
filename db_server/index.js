@@ -8,6 +8,7 @@ const app = express();
 const be = new BlockchainExplorer(TESTPORT);
 
 app.get('/', function (req, res, next) {
+    // be.createTable(req, res, next);
     be.showData(req, res, next);
 });
 
