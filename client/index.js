@@ -61,6 +61,7 @@ const InvalidPerissonsError = require("../errors")
 
 const app = express();
 
+
 const transactionBatch = []
 
 app.use(express.json()); // support json encoded bodies
@@ -70,6 +71,12 @@ const bc = new Blockchain(String(PORT));
 const tp = new TransactionPool()
 const db = Database.getDatabase(bc, tp)
 const p2pServer = new P2pServer(db, bc, tp, process.env.STAKE? Number(process.env.STAKE) : null)
+const jayson = require('jayson')
+
+
+const json_rpc_methods = require('../json_rpc/methods')(bc, tp)
+app.post('/json-rpc', jayson.server(json_rpc_methods).middleware())
+
 
 app.get('/', (req, res, next) => {
   try{
