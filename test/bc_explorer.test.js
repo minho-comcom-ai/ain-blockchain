@@ -1,4 +1,4 @@
-const BlockchainExtractor = require('../db_server/bc_explorer');
+const BlockchainExplorer = require('../db_server/bc_explorer');
 
 const chai = require('chai');
 const expect = chai.expect;
@@ -10,7 +10,7 @@ const TESTPORT = 8080;
  * It hasn't been developed for mocha unittest.
  * Temporal test.
  */
-be = new BlockchainExtractor(TESTPORT);
+be = new BlockchainExplorer(TESTPORT);
 be.showAllBlocks()
 
 /*
