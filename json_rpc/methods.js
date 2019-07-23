@@ -3,11 +3,14 @@
 const getJsonRpcApi = require('./methods_impl');
 
 module.exports = function getMethods(blockchain, transactionPool) {
+    // Returns dict of functions which are compatible with jayson JSON-RPC library
+    // for querying both blockchain and transactionPool
     
     const methodsImpl = getJsonRpcApi(blockchain, transactionPool)
     return {     
             getBlocks: function(args, done){
-                const blocks = methodsImpl.blockchainClosure.getBlocks(args[0])
+                const queryDict = (typeof args === "undefined" || args.length < 1) ? {} : args[0]
+                const blocks = methodsImpl.blockchainClosure.getBlockBodies(queryDict)
                 done(null, blocks)
             },
     
@@ -22,7 +25,8 @@ module.exports = function getMethods(blockchain, transactionPool) {
             },
 
             getBlockHeaders: function(args, done){
-                const blockHeaders =  methodsImpl.blockchainClosure.getBlockHeaders(args[0])
+                const queryDict = (typeof args === "undefined" || args.length < 1) ? {} : args[0]
+                const blockHeaders =  methodsImpl.blockchainClosure.getBlockHeaders(queryDict)
                 done(null, blockHeaders)
             }
     }
