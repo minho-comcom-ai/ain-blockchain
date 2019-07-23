@@ -18,6 +18,7 @@ function bcProc(bc) {
 
         },
 
+
         getLastBlock(){
             return bc.lastBlock()
         },
@@ -29,10 +30,10 @@ function bcProc(bc) {
                 blockHeaders.push(block.header())
             })
             return blockHeaders
+
         }
     }
 }
-
 
 function tpProc(tp) {
     // Returns functions which are callable through json-rpc

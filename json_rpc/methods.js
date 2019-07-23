@@ -24,6 +24,7 @@ module.exports = function getMethods(bc, tp) {
             getBlockHeaders: function(args, done){
                 const blockHeaders =  _methods_impl.blockchainProc.getBlockHeaders(args[0])
                 done(null, blockHeaders)
+
             }
     }
 }
