@@ -1,25 +1,26 @@
 'use strict';
 
-module.exports = function getJsonRpcApi(bc, tp){
+module.exports = function getJsonRpcApi(blockchain, transactionPool){
     return {
-        blockchainProc: bcProc(bc),
-        transactionpoolProc: tpProc(tp)
+        blockchainClosure: getBlockchainClosure(blockchain),
+        transactionPoolClosure: getTransactionPoolClosure(transactionPool)
     }
 }
 
-function bcProc(bc) {
-    // Returns functions which are callable through json-rpc
+function getBlockchainClosure(blockchain) {
+    // Wraps blockchain instance in a closure with a set of functions. 
+    // These functions will be invoked through JSON-RPC calls to ../medthod.js 
+    // that allows clients to query information from the blockchain 
 
     return {
         getBlocks(query) {
             const to = ("to" in query) ? query.to: bc.length
             const from = ("from" in query) ? query.from: 0
-            return bc.getChainSection(from, to)
-
+            return blockchain.getChainSection(from, to)
         },
 
         getLastBlock(){
-            return bc.lastBlock()
+            return blockchain.lastBlock()
         },
 
         getBlockHeaders(query){
@@ -33,13 +34,14 @@ function bcProc(bc) {
     }
 }
 
-
-function tpProc(tp) {
-    // Returns functions which are callable through json-rpc
+function getTransactionPoolClosure(transactionPool) {
+    // Wraps transactionPool instance in a closure with a set of functions. 
+    // These functions will be invoked through JSON-RPC calls to ../medthod.js 
+    // that allows clients to query information from the transactionPool 
 
     return {
         getTransactions() {
-            return tp.transactions
+            return transactionPool.transactions
         }
     }
 }
