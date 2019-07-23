@@ -3,6 +3,8 @@
 const getJsonRpcApi = require('./methods_impl');
 
 module.exports = function getMethods(blockchain, transactionPool) {
+    // Returns dict of functions which are compatible with jayson JSON-RPC library
+    // for querying both blockchain and transactionPool
     
     const methodsImpl = getJsonRpcApi(blockchain, transactionPool)
     return {     
