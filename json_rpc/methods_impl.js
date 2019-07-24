@@ -1,5 +1,7 @@
 'use strict';
 
+
+
 module.exports = function getJsonRpcApi(blockchain, transactionPool){
     return {
         blockchainClosure: getBlockchainClosure(blockchain),
@@ -7,10 +9,17 @@ module.exports = function getJsonRpcApi(blockchain, transactionPool){
     }
 }
 
+
+ /**
+ * Wraps a blockchain instance in a closure with a set of functions.
+ * These functions will be invoked through JSON-RPC calls to ./methods.js 
+ * that allow clients to query information from the blockchain
+ *
+ * @param {Blockchain} blockchain - Instance of the Blockchain class
+ * @return {dict} A closure allowing read access to information from the wrapped blockchain
+ *
+ */
 function getBlockchainClosure(blockchain) {
-    // Wraps blockchain instance in a closure with a set of functions. 
-    // These functions will be invoked through JSON-RPC calls to ../methods.js 
-    // that allow clients to query information from the blockchain 
 
     return {
         getBlocks(query) {
@@ -43,10 +52,16 @@ function getBlockchainClosure(blockchain) {
     }
 }
 
+ /**
+ * Wraps a TransactionPool instance in a closure with a set of functions.
+ * These functions will be invoked through JSON-RPC calls to ./methods.js 
+ * that allow clients to query information from the transactionPool
+ *
+ * @param {TransactionPool} transactionPool -Instance of the TransactionPool class
+ * @return {dict} A closure allowing read access to information from the wrapped transactionPool 
+ *
+ */
 function getTransactionPoolClosure(transactionPool) {
-    // Wraps transactionPool instance in a closure with a set of functions. 
-    // These functions will be invoked through JSON-RPC calls to ./methodsjs 
-    // that allow clients to query information from the transactionPool 
 
     return {
         getTransactions() {
