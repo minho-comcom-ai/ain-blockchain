@@ -176,11 +176,11 @@ function waitUntilNodeStakes() {
   let blocksAfterStaking = 0;
   let validators = {};
   while (count <= MAX_PROMISE_STACK_DEPTH && blocksAfterStaking < 2) {
-    const result = JSON.parse(syncRequest('POST', server1 + '/json-rpc',
+    const block = JSON.parse(syncRequest('POST', server1 + '/json-rpc',
         {json: {jsonrpc: '2.0', method: 'ain_getRecentBlock', id: 0,
                 params: {protoVer: CURRENT_PROTOCOL_VERSION}}})
-        .body.toString('utf-8')).result;
-    validators = result.result;
+        .body.toString('utf-8')).result.result;
+    validators = block.validators;
     if (Object.keys(validators).length >= 2) {
       blocksAfterStaking++;
     }
