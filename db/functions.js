@@ -1,5 +1,6 @@
 const logger = require('../logger');
 const { PredefinedDbPaths, FunctionResultCode, DefaultValues } = require('../constants');
+const { ConsensusRef, ConsensusDefaultValues } = require('../consensus/constants');
 const ChainUtil = require('../chain-util');
 const {FunctionProperties} = require('../constants')
 const axios = require('axios')
@@ -12,6 +13,11 @@ const FunctionPaths = {
   TRANSFER: `${PredefinedDbPaths.TRANSFER}/{from}/{to}/{key}/${PredefinedDbPaths.TRANSFER_VALUE}`,
   DEPOSIT: `${PredefinedDbPaths.DEPOSIT}/{service}/{user}/{deposit_id}/${PredefinedDbPaths.DEPOSIT_VALUE}`,
   WITHDRAW: `${PredefinedDbPaths.WITHDRAW}/{service}/{user}/{withdraw_id}/${PredefinedDbPaths.WITHDRAW_VALUE}`,
+  PROPOSE: `${ConsensusRef.base()}/{block_number}/propose`,
+  NEXT_ROUND_PROPOSER: `${ConsensusRef.base()}/{block_number}/next_round_proposer`,
+  NEXT_ROUND_VALIDATORS: `${ConsensusRef.base()}/{block_number}/next_round_validators`,
+  PREVOTE: `${ConsensusRef.base()}/{block_number}/prevote/{user}`,
+  PRECOMMIT: `${ConsensusRef.base()}/{block_number}/precommit/{user}`,
 };
 
 /**
@@ -24,6 +30,11 @@ class Functions {
       [FunctionPaths.TRANSFER]: this._transfer.bind(this),
       [FunctionPaths.DEPOSIT]: this._deposit.bind(this),
       [FunctionPaths.WITHDRAW]: this._withdraw.bind(this),
+      [FunctionPaths.PROPOSE]: this._propose.bind(this),
+      [FunctionPaths.NEXT_ROUND_PROPOSER]: this._setNextRoundProposer.bind(this),
+      [FunctionPaths.NEXT_ROUND_VALIDATORS]: this._setNextRoundValidators.bind(this),
+      [FunctionPaths.PREVOTE]: this._prevote.bind(this),
+      [FunctionPaths.PRECOMMIT]: this._precommit.bind(this),
     };
   }
 
@@ -34,13 +45,13 @@ class Functions {
    * @param {*} value value set on the database path
    * @param {Number} timestamp the time at which the transaction was created and signed
    */
-  runBuiltInFunctions(parsedValuePath, value, timestamp, currentTime) {
+  runBuiltInFunctions(parsedValuePath, value, address, timestamp, currentTime) {
     const matches = this.matchFunctionPaths(parsedValuePath);
     matches.forEach((elem) => {
       logger.info(
-        `  ==> Running built-in function '${elem.func.name}' with value '${value}', timestamp '${timestamp}', currentTime '${currentTime}' and params: ` +
+        `  ==> Running built-in function '${elem.func.name}' with value '${JSON.stringify(value)}', address '${address}', timestamp '${timestamp}', currentTime '${currentTime}' and params: ` +
         JSON.stringify(elem.params));
-      elem.func(value, { params: elem.params, timestamp, currentTime });
+      elem.func(value, { params: elem.params, address, timestamp, currentTime });
     })
   }
 
@@ -200,6 +211,86 @@ class Functions {
     }
   }
 
+  // Triggered by setting a value at '/consensus/number/{block_number}/propose'
+  // sets values at:
+  //    /consensus/number/{block_number}/proposer
+  //    /consensus/number/{block_number}/validators
+  //    /consensus/number/{block_number}/total_at_stake
+  _propose(value, context) {
+    const number = Number(context.params.block_number);
+    const proposer = context.address;
+    if (number > 1) {
+      // Do something.
+    } else {
+      // Set (current) validators and total_at_stake for the very first round.  
+      const depositAmountPath = this._getDepositAmountPath('consensus', proposer);
+      const depositExpirationPath = this._getDepositExpirationPath('consensus', proposer);
+      const consensusDeposit = this.db.getValue(depositAmountPath);
+      const expiration = this.db.getValue(depositExpirationPath);
+      if (consensusDeposit > 0 && expiration > context.currentTime + ConsensusDefaultValues.DAY_MS) {
+        logger.debug(`Updating proposer, validators and total_at_stake for number ${number}.`)
+        this.db.writeDatabase(this._getFullValuePath(
+          ChainUtil.parsePath(ConsensusRef.proposer(number))), proposer);
+        this.db.writeDatabase(this._getFullValuePath(
+            ChainUtil.parsePath(ConsensusRef.validators(number))), {[proposer]: consensusDeposit});
+        this.db.writeDatabase(this._getFullValuePath(
+            ChainUtil.parsePath(ConsensusRef.totalAtStake(number))), consensusDeposit);
+      } else {
+        logger.debug(`The proposer doesn't have enough consensus deposit. ` +
+            `Deposit amount: ${consensusDeposit}, expiration: ${expiration}, currentTime: ${context.currentTime}`);
+      } 
+    }
+    this._updateLatestBlockNumber(number + 1);
+  }
+
+  _setNextRoundProposer(value, context) {
+    const number = Number(context.params.block_number);
+    // const proposerPath = this._getProposerPath(number + 1);
+      // TODO (lia): Things to check:
+      // 1.The next proposer is in the next validator set
+      // 2. ..
+      // Add the checks in the rules?
+    const proposerPath = ConsensusRef.proposer(number + 1);
+    this.db.writeDatabase(this._getFullValuePath(ChainUtil.parsePath(proposerPath)), value);
+  }
+
+  _setNextRoundValidators(value, context) {
+    const number = Number(context.params.block_number);
+    // const validatorsPath = this._getValidatorsPath(number + 1);
+    let totalAtStake = 0;
+    let addresses = Object.keys(value);
+    for (let addr of addresses) {
+      // TODO (lia): Things to check:
+      // 1. The staking values are numbers before triggering a built-in func.
+      // 2. The validators actually have valid deposits.
+      // Add the checks in the rules?
+      totalAtStake += Number(value[addr]);
+    }
+    logger.debug(`value: ${JSON.stringify(value)}, context: ${JSON.stringify(context)}, totalAtStake: ${totalAtStake}`)
+    const validatorsPath = ConsensusRef.validators(number + 1);
+    const totalAtStakePath = ConsensusRef.totalAtStake(number + 1);
+    this.db.writeDatabase(this._getFullValuePath(ChainUtil.parsePath(validatorsPath)), value);
+    this.db.writeDatabase(this._getFullValuePath(ChainUtil.parsePath(totalAtStakePath)), totalAtStake);
+  }
+
+  _prevote(value, context) {
+    const number = Number(context.params.block_number);
+    // const prevoteSumPath = this._getPrevoteSumPath(number);
+    const prevoteSumPath = ConsensusRef.prevoteSum(number);
+    const currentSum = this.db.getValue(prevoteSumPath) || 0;
+    logger.debug(`value: ${JSON.stringify(value)}, context: ${JSON.stringify(context)}, currentSum: ${currentSum}`)
+    this.db.writeDatabase(this._getFullValuePath(ChainUtil.parsePath(prevoteSumPath)), currentSum + value);
+  }
+
+  _precommit(value, context) {
+    const number = Number(context.params.block_number);
+    // const precommitSumPath = this._getPrecommitSumPath(number);
+    const precommitSumPath = ConsensusRef.precommitSum(number);
+    const currentSum = this.db.getValue(precommitSumPath) || 0;
+    logger.debug(`value: ${JSON.stringify(value)}, context: ${JSON.stringify(context)}, currentSum: ${currentSum}`)
+    this.db.writeDatabase(this._getFullValuePath(ChainUtil.parsePath(precommitSumPath)), currentSum + value);
+  }
+
   _transferInternal(fromPath, toPath, value) {
     const fromBalance = this.db.getValue(fromPath);
     if (fromBalance < value) return false;
@@ -207,6 +298,15 @@ class Functions {
     this.db.writeDatabase(this._getFullValuePath(ChainUtil.parsePath(fromPath)), fromBalance - value);
     this.db.writeDatabase(this._getFullValuePath(ChainUtil.parsePath(toPath)), toBalance + value);
     return true;
+  }
+
+  _updateLatestBlockNumber(newNumber) {
+    const latestNumberPath = ConsensusRef.latestNumber();
+    const currentNumber = this.db.getValue(latestNumberPath) || 0;
+    if (currentNumber < newNumber) {
+      logger.debug(`Updating /consensus/latest_number to ${newNumber}`);
+      this.db.writeDatabase(this._getFullValuePath(ChainUtil.parsePath(latestNumberPath)), newNumber);
+    }
   }
 
   _getBalancePath(address) {

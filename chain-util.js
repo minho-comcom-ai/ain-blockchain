@@ -2,6 +2,7 @@ const EC = require('elliptic').ec;
 const ec = new EC('secp256k1');
 const ainUtil = require('@ainblockchain/ain-util');
 const PRIVATE_KEY = process.env.PRIVATE_KEY || null;
+const get = require('lodash/get');
 
 class ChainUtil {
   static hashString(stringData) {
@@ -61,6 +62,16 @@ class ChainUtil {
       return '/';
     }
     return (parsedPath[0].startsWith('/') ? '' : '/') + parsedPath.join('/');
+  }
+
+  // TODO (lia): improve error codes
+  static txExecutedSuccessfully(result) {
+    const code = get(result, 'code'); // getting result.code
+    return result !== null && (code === 0 || code === undefined);
+  }
+
+  static resolveDbPath(pathSubKeys) {
+    return pathSubKeys.join('/');
   }
 }
 

@@ -110,10 +110,11 @@ class Block {
 
   static validateProposedBlock(block, blockchain) {
     if (!Block.validateHashes(block)) { return false; }
-    if (block.number !== (blockchain.lastBlockNumber() + 1)) {
-      logger.error(`Number is not correct for block ${block.hash}.
-                   Expected: ${(blockchain.lastBlockNumber() + 1)}
-                   Actual: ${block.number}`);
+    const expectedBlockNumber = blockchain.lastBlockNumber() + 1;
+    if (block.number !== expectedBlockNumber) {
+      logger.error(`[Block:validateProposedBlock] Number is not correct for block ${block.hash}.\n` +
+                   `Expected: ${expectedBlockNumber}\n` +
+                   `Actual: ${block.number}`);
       return false;
     }
     // TODO (lia): check the contents of block.last_votes if they indeed voted for

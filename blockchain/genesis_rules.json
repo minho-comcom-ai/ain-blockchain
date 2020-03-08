@@ -12,27 +12,27 @@
     }
   },
   "consensus": {
-    "recent_proposers": {
-      ".write": "(newData && util.isDict(newData) && util.length(newData) < 20) && (getValue('/consensus/voting/pre_commits') > getValue('/consensus/voting/threshold')) && (getValue('/consensus/voting/proposer') === auth)"
-    },
-    "stakes": {
-      "$uid": {
-        ".write": "auth === $uid"
-      }
-    },
-    "voting": {
-      ".write": "getValue('/consensus/voting') === null || (getValue('/consensus/recent_proposers') !== null && (util.keys(getValue('/consensus/recent_proposers'))[util.length(getValue('/consensus/recent_proposers')) - 1 - ((Math.floor((currentTime - getValue('/consensus/voting/time')) / 6000) - 1) % util.length(getValue('/consensus/recent_proposers')))] === auth))",
-      "block_hash": {
-        ".write": "getValue('/consensus/voting/proposer') === auth"
-      },
-      "next_round_validators": {
-        ".write": "getValue('/deposit_accounts/consensus/' + auth + '/value') > 0 && getValue('/deposit_accounts/consensus/' + auth + '/expire_at') > currentTime"
-      },
-      "pre_votes":{
-        ".write": "getValue('/consensus/voting/block_hash') !== null"
-      },
-      "pre_commits": {
-        ".write":  "getValue('/consensus/voting/pre_votes') > getValue('/consensus/voting/threshold')"
+    "number": {
+      "$block_number": {
+        "propose": {
+          ".write": "data === null && newData !== null && util.isProposerForNumber($block_number, auth)"
+        },
+        "prevote": {
+          "$uid": {
+            ".write": "auth === $uid && data === null && newData !== null && util.isNumber(newData) && newData > 0 && util.isValidatorForNumber($block_number, auth)"
+          }
+        },
+        "precommit": {
+          "$uid": {
+            ".write": "auth === $uid && data === null && newData !== null && util.isNumber(newData) && newData > 0 && util.isValidatorForNumber($block_number, auth)"
+          }
+        },
+        "next_round_proposer": {
+          ".write": "util.isProposerForNumber($block_number, auth)"
+        },
+        "next_round_validators": {
+          ".write": "util.isProposerForNumber($block_number, auth)"
+        }
       }
     }
   },

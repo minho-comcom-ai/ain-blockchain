@@ -15,7 +15,7 @@ class Blockchain {
     this.chain = [];
     this.blockchainDir = blockchainDir;
     this.backupDb = null;
-    this._proposedBlock = null;
+    this.blockPool = {};
     this.syncedAfterStartup = false;
   }
 
@@ -53,6 +53,10 @@ class Blockchain {
       let newChain = Blockchain.loadChain(this._blockchainDir());
       if (newChain) {
         this.chain = newChain;
+        const lastBlock = this.chain.pop();
+        // Keep the last block in the blockPool until we see the votes for the block.
+        // (regard it as it's not finalized)
+        this.blockPool[lastBlock.number] = lastBlock;
       }
     }
   }
@@ -114,6 +118,7 @@ class Blockchain {
   }
 
   addNewBlock(block) {
+    logger.info(`\n[blockchain:addNewBlock] block: ${block instanceof Block ? block : JSON.stringify(block)}\n`)
     if (!block) {
       logger.info(`[blockchain.addNewBlock] Block is null`);
       return false;
@@ -126,9 +131,9 @@ class Blockchain {
       block = Block.parse(block);
     }
     this.chain.push(block);
+    this.backupDb.applyBlock(block);
     while (this.chain.length > 10) {
-      const block = this.chain.shift();
-      this.backupDb.executeTransactionList(block.transactions);
+      this.chain.shift();
     }
     this.writeChain();
     return true;
@@ -203,11 +208,16 @@ class Blockchain {
     *                CHAIN_SUBSECT_LENGTH
     */
   requestBlockchainSection(refBlock) {
+    const lastBlockNumber = this.lastBlockNumber();
     const refBlockNumber = refBlock ? refBlock.number : 0;
-    logger.info(`Current last block number: ${this.lastBlockNumber()}, ` +
+    logger.info(`Current last block number: ${lastBlockNumber}, ` +
         `Requester's last block number: ${refBlockNumber}`);
+    if (lastBlockNumber < refBlockNumber) {
+      return null;
+    }
+    // Returns up to (end index - 1).
     const blockFiles =
-        this.getBlockFiles(refBlockNumber, refBlockNumber + CHAIN_SUBSECT_LENGTH);
+        this.getBlockFiles(refBlockNumber, Math.min(lastBlockNumber + 1, refBlockNumber + CHAIN_SUBSECT_LENGTH));
     if (blockFiles.length > 0 &&
         Block.loadBlock(blockFiles[blockFiles.length - 1]).number > refBlockNumber &&
         (refBlock && blockFiles[0].indexOf(Block.getFileName(refBlock)) < 0)) {
@@ -228,7 +238,7 @@ class Blockchain {
     return chainSubSection.length > 0 ? chainSubSection: null;
   }
 
-  merge(chainSubSection) {
+  merge(chainSubSection, isEndOfChain) {
     // Call to shift here is important as it removes the first element from the list !!
     logger.info(`Last block number before merge: ${this.lastBlockNumber()}`);
     if (chainSubSection.length === 0) {
@@ -248,7 +258,6 @@ class Blockchain {
       logger.info('Received chain is at the same block number');
       if (!this.syncedAfterStartup) {
         // Regard this situation as if you're synced.
-        // TODO (lia): ask the tracker server for another peer.
         this.syncedAfterStartup = true;
       }
       return false;
@@ -274,9 +283,11 @@ class Blockchain {
       logger.error('Invalid chain subsection');
       return false;
     }
-    for (let i = 0; i < chainSubSection.length; i++) {
+    const len = isEndOfChain ? chainSubSection.length - 1 : chainSubSection.length;
+    for (let i = 0; i < len; i++) {
       // Skip the first block if it's not a cold start (i.e., starting from genesis block).
       if (lastBlockHash && i === 0) {
+        logger.info(`\n[blockchain:merge] Skipping first block...\n`)
         continue;
       }
       const block = chainSubSection[i];
@@ -284,6 +295,13 @@ class Blockchain {
         logger.error('Failed to add block '+ block);
         return false;
       }
+      if (this.blockPool[block.number]) {
+        delete this.blockPool[block.number];
+      }
+    }
+    if (isEndOfChain) {
+      const lastBlockFromSubsection = chainSubSection[chainSubSection.length - 1];
+      this.blockPool[lastBlockFromSubsection.number] = lastBlockFromSubsection;
     }
     logger.info(`Last block number after merge: ${this.lastBlockNumber()}`);
     return true;

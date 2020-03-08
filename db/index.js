@@ -7,7 +7,8 @@ const Functions = require('./functions');
 const BuiltInRuleUtil = require('./built-in-rule-util');
 
 class DB {
-  constructor() {
+  constructor(node) {
+    this.node = node;
     this.dbData = {};
     this.initDbData();
     this.func = new Functions(this);
@@ -31,6 +32,27 @@ class DB {
     this.writeDatabase([PredefinedDbPaths.RULES_ROOT], {
       [RuleProperties.WRITE]: true
     });
+  }
+
+  // TODO (lia): Apply txs on a temp snapshot and revert changes if any one of
+  // them failed. Update snapshot if successful.
+  applyBlock(block) {
+    block.last_votes.forEach((vote) => {
+      const result = this.executeTransaction(vote);
+      if (!ChainUtil.txExecutedSuccessfully(result)) {
+        logger.debug(`\nUnsuccessful last_vote execution:\n${JSON.stringify(vote)}\nRESULT: ${JSON.stringify(result)}\n`);
+        // return false;
+      }
+    });
+    
+    block.transactions.forEach((tx) => {
+      const result = this.executeTransaction(tx);
+      if (!ChainUtil.txExecutedSuccessfully(result)) {
+        logger.debug(`\nUnsuccessful block transaction execution:\n${JSON.stringify(tx)}\nRESULT: ${JSON.stringify(result)}\n`);
+        // return false;
+      }
+    });
+    return true;
   }
 
   // For testing purpose only.
@@ -145,7 +167,7 @@ class DB {
     const valueCopy = ChainUtil.isDict(value) ? JSON.parse(JSON.stringify(value)) : value;
     const fullPath = this.getFullPath(parsedPath, PredefinedDbPaths.VALUES_ROOT);
     this.writeDatabase(fullPath, valueCopy);
-    this.func.runBuiltInFunctions(parsedPath, valueCopy, timestamp, Date.now());
+    this.func.runBuiltInFunctions(parsedPath, valueCopy, address, timestamp, Date.now());
     return true;
   }
 
@@ -573,10 +595,11 @@ class DB {
     } else if (typeof ruleString !== 'string') {
       return false;
     }
+    // const data = this.getValue(valuePath.join('/'));
     const evalFunc = this.makeEvalFunction(ruleString, pathVars);
     return evalFunc(address, data, newData, timestamp, this.getValue.bind(this),
                     this.getRule.bind(this), this.getFunction.bind(this), this.getOwner.bind(this),
-                    new BuiltInRuleUtil(), ...Object.values(pathVars));
+                    new BuiltInRuleUtil(this, this.node.bc), ...Object.values(pathVars));
   }
 
   static hasOwnerConfig(ownerNode) {

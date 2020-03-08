@@ -10,11 +10,12 @@ class Node {
   constructor() {
     this.bc = new Blockchain(String(PORT));
     this.tp = new TransactionPool();
-    this.db = new DB();
+    this.db = new DB(this);
     this.nonce = null;
     // TODO(lia): Add account importing functionality.
     this.account = ACCOUNT_INDEX !== null ?
         GenesisAccounts.others[ACCOUNT_INDEX] : ainUtil.createAccount();
+    this.initialized = false;
     logger.info(`Creating new node with account: ${this.account.address}`);
   }
 
@@ -26,9 +27,10 @@ class Node {
   init(isFirstNode) {
     logger.info('Initializing node..')
     this.bc.init(isFirstNode);
-    this.bc.setBackupDb(new DB());
+    this.bc.setBackupDb(new DB(this));
     this.nonce = this.getNonce();
-    this.reconstruct();
+    this.reconstruct(true);
+    this.initialized = true;
   }
 
   getNonce() {
@@ -91,19 +93,26 @@ class Node {
     return Transaction.newTransaction(this.account.private_key, txData);
   }
 
-  reconstruct() {
+  reconstruct(isInitializing = false) {
+    // TODO (lia): update reconstructing logic
     logger.info('Reconstructing database');
     this.db.setDbToSnapshot(this.bc.backupDb);
-    this.executeChainOnDb();
+    this.executeChainOnDb(isInitializing);
     this.db.executeTransactionList(this.tp.getValidTransactions());
   }
 
-  executeChainOnDb() {
-    this.bc.chain.forEach((block) => {
-      const transactions = block.transactions;
-      this.db.executeTransactionList(transactions);
-      this.tp.updateNonceTrackers(transactions);
-    });
+  executeChainOnDb(isInitializing = false) {
+    logger.info(`\n[node:executeChainOnDb] chain length: ${this.bc.chain.length} lastBlockNumber: ${this.bc.lastBlockNumber()}\n`);
+    const len = this.bc.chain.length;
+    // If initializing, apply only the blocks up to last - 1 (discard the last block).
+    // TODO (lia): Use last_votes of the last block to update consensus state (during initialization)?
+    for (let i = 0; i < len; i++) {
+      const block = this.bc.chain[i];
+      this.bc.backupDb.applyBlock(block);
+      this.tp.updateNonceTrackers(block.transactions);
+      // this.tp.updateCommittedNonces(block.transactions);
+    }
+    this.db.setDbToSnapshot(this.bc.backupDb);
   }
 }
 
