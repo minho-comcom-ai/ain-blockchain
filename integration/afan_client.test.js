@@ -162,7 +162,6 @@ describe('aFan Client Test', () => {
         .then(() => set_value('/afan/balance/uid1', 10))
         .then(() => set_value('/afan/investors/uid1/uid2', 3))
         .then(() => set_value('/afan/investors/uid1/uid3', 7))
-        // .then(() => sleep(500))
         .then(() => afanClient.tx_crushOnPost('uid0', 'uid1', 'post0', 20))
         .then(() => waitForNewBlocks(server2, 2))
         .then(() => get_value('/afan'))
