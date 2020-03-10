@@ -188,15 +188,15 @@ function waitUntilNodeStakes() {
   }
 }
 
-function waitUntilNewBlock() {
+function waitForNewBlocks(server = server1, numNewBlocks = 1) {
   const initialLastBlockNumber =
-      JSON.parse(syncRequest('GET', server1 + LAST_BLOCK_NUMBER_ENDPOINT)
+      JSON.parse(syncRequest('GET', server + LAST_BLOCK_NUMBER_ENDPOINT)
         .body.toString('utf-8'))['result'];
   let updatedLastBlockNumber = initialLastBlockNumber;
   console.log(`Initial last block number: ${initialLastBlockNumber}`)
-  while (!(updatedLastBlockNumber > initialLastBlockNumber)) {
-    sleep(500)
-    updatedLastBlockNumber = JSON.parse(syncRequest('GET', server1 + LAST_BLOCK_NUMBER_ENDPOINT)
+  while (updatedLastBlockNumber < initialLastBlockNumber + numNewBlocks) {
+    sleep(1000);
+    updatedLastBlockNumber = JSON.parse(syncRequest('GET', server + LAST_BLOCK_NUMBER_ENDPOINT)
       .body.toString('utf-8'))['result'];
     console.log(`block number... ${updatedLastBlockNumber}`)
   }
@@ -237,12 +237,12 @@ describe('Integration Tests', () => {
       const proc = SERVER_PROCS[i];
       console.log(`Starting server[${i}]...`);
       proc.start();
-      sleep(5000);
+      sleep(2000);
+      waitForNewBlocks(SERVERS[i]);
       const address =
           JSON.parse(syncRequest('GET', SERVERS[i] + '/get_address').body.toString('utf-8')).result;
       nodeAddressList.push(address);
     };
-    sleep(20000);
     jsonRpcClient = jayson.client.http(server2 + JSON_RPC_ENDPOINT);
     promises.push(new Promise((resolve) => {
       jsonRpcClient.request(JSON_RPC_GET_RECENT_BLOCK,
@@ -271,10 +271,10 @@ describe('Integration Tests', () => {
   });
 
   describe(`blockchain database mining/forging`, () => {
-    it('syncs accross all peers after mine', () => {
+    it('syncs across all peers after mine', () => {
       for (let i = 1; i < SERVERS.length; i++) {
         sendTransactions(sentOperations);
-        waitUntilNewBlock();
+        waitForNewBlocks(SERVERS[i]);
         let baseValues = JSON.parse(syncRequest('GET', server1 + GET_VALUE_ENDPOINT + '?ref=/')
           .body.toString('utf-8'));
         const values = JSON.parse(syncRequest('GET', SERVERS[i] + GET_VALUE_ENDPOINT + '?ref=/')
@@ -285,7 +285,7 @@ describe('Integration Tests', () => {
 
     it('will sync to new peers on startup', () => {
       sendTransactions(sentOperations);
-      waitUntilNewBlock();
+      waitForNewBlocks();
       let baseChain;
       let number;
       const accountIndex = 4;
@@ -296,7 +296,8 @@ describe('Integration Tests', () => {
         ADDITIONAL_RULES: 'test:./test/data/rules_for_testing.json'
       });
       newServerProc.start();
-      sleep(15000);
+      sleep(2000);
+      waitForNewBlocks(newServer);
       return new Promise((resolve) => {
         jayson.client.http(server1 + JSON_RPC_ENDPOINT)
         .request(JSON_RPC_GET_BLOCKS, {protoVer: CURRENT_PROTOCOL_VERSION},
@@ -336,14 +337,13 @@ describe('Integration Tests', () => {
         .body.toString('utf-8')).result.result;
       });
 
-
       it('syncing across all chains', () => {
         let server;
         let newChain;
         for (let i = 0; i < SERVERS.length; i++) {
           server = SERVERS[i];
           sendTransactions(sentOperations);
-          waitUntilNewBlock();
+          waitForNewBlocks(server);
           const number = baseChain[baseChain.length - 1].number;
           return new Promise((resolve) => {
             jayson.client.http(server + JSON_RPC_ENDPOINT)
@@ -360,12 +360,11 @@ describe('Integration Tests', () => {
         }
       });
 
-      // NOTE(seo): Flaky test case, rarely fails.
       it('blocks have correct validators and voting data', () => {
         let threshold = 2 / 3; // TODO (lia): define this as a constant in genesis.
         for (let i = 0; i < SERVERS.length; i++) {
           sendTransactions(sentOperations);
-          waitUntilNewBlock();
+          waitForNewBlocks();
           const blocks = JSON.parse(syncRequest('POST', SERVERS[i] + '/json-rpc',
               {json: {jsonrpc: '2.0', method: JSON_RPC_GET_BLOCKS, id: 0,
                       params: {protoVer: CURRENT_PROTOCOL_VERSION}}})
@@ -394,13 +393,14 @@ describe('Integration Tests', () => {
                 continue;
               } else if (last_vote.operation.ref === PredefinedDbPaths.VOTING_ROUND_PRE_VOTES) {
                 preVotes += last_vote.operation.value;
-              } else if (preVotes <= majority) {
-                // TODO (lia): fix this issue. sometimes it fails this check.
-                assert.fail('PreCommits were made before PreVotes reached threshold');
-              } else {
+              } else if (last_vote.operation.ref === PredefinedDbPaths.VOTING_ROUND_PRE_COMMITS) {
                 preCommits += last_vote.operation.value;
+              } else {
+                assert.fail('Invalid voting message type');
               }
             }
+            assert(preVotes >= majority, 'Not enough prevotes received');
+            assert(preCommits >= majority, 'Not enough precommits received');
           }
         }
       });
@@ -423,7 +423,7 @@ describe('Integration Tests', () => {
         }
         for (let i = 0; i < SERVERS.length; i++) {
           sendTransactions(sentOperations);
-          waitUntilNewBlock();
+          waitForNewBlocks();
           const blocks = JSON.parse(syncRequest('POST', SERVERS[i] + '/json-rpc',
               {json: {jsonrpc: '2.0', method: JSON_RPC_GET_BLOCKS, id: 0,
                       params: {protoVer: CURRENT_PROTOCOL_VERSION}}})
@@ -444,7 +444,7 @@ describe('Integration Tests', () => {
         }
       });
 
-      // TODO(seo): Uncomment this. It's flacky.
+      // TODO(seo): Uncomment this. It's flaky.
       /*
       it('all having correct number of blocks', () => {
         expect(numNewBlocks + numBlocksOnStartup).to.equal(baseChain.pop().number);
@@ -455,7 +455,7 @@ describe('Integration Tests', () => {
     describe('and rules', () => {
       it('prevent users from restructed areas', () => {
         sendTransactions(sentOperations);
-        waitUntilNewBlock();
+        waitForNewBlocks();
         const body = JSON.parse(syncRequest('POST', server2 + SET_VALUE_ENDPOINT, { json: {
           ref: 'restricted/path', value: 'anything', is_nonced_transaction: false
         }}).body.toString('utf-8'));
@@ -474,7 +474,7 @@ describe('Integration Tests', () => {
 
       it('facilitate transfer between accounts', () => {
         sendTransactions(sentOperations);
-        waitUntilNewBlock();
+        waitForNewBlocks();
         syncRequest('POST', server1 + SET_VALUE_ENDPOINT, { json: {
           ref: `/transfer/${nodeAddressList[0]}/${nodeAddressList[1]}/1/value`, value: 10
         }});
@@ -508,7 +508,7 @@ describe('Integration Tests', () => {
 
       it('can be queried by index ', () => {
         sendTransactions(sentOperations);
-        waitUntilNewBlock();
+        waitForNewBlocks();
         return new Promise((resolve) => {
           jsonRpcClient.request(JSON_RPC_GET_BLOCK_HEADERS,
                                 {from: 2, to: 4, protoVer: CURRENT_PROTOCOL_VERSION},
@@ -525,7 +525,7 @@ describe('Integration Tests', () => {
 
       it('can be queried by hash ', () => {
         sendTransactions(sentOperations);
-        waitUntilNewBlock();
+        waitForNewBlocks();
         return new Promise((resolve) => {
           jsonRpcClient.request(JSON_RPC_GET_BLOCK_BY_NUMBER,
               {number: 2, protoVer: CURRENT_PROTOCOL_VERSION}, function(err, response) {
@@ -552,13 +552,14 @@ describe('Integration Tests', () => {
         let blocks;
         for (let i = 0; i < SERVERS.length; i++) {
           sendTransactions(sentOperations);
-          waitUntilNewBlock();
+          waitForNewBlocks();
+          console.log("\nSERVER" + i)
           blocks = JSON.parse(syncRequest(
               'GET', SERVERS[i] + BLOCKS_ENDPOINT).body.toString('utf-8'))['result'];
           const transactionsOnBlockChain = [];
           blocks.forEach((block) => {
             block.transactions.forEach((transaction) => {
-              // TODO(seo): Find a better way.
+              // TODO(seo): Find a better way. ==> Maybe check if ref starts with 'test/' ?
               if (!(JSON.stringify(transaction).includes(PredefinedDbPaths.VOTING_ROUND) ||
                   JSON.stringify(transaction).includes(PredefinedDbPaths.RECENT_PROPOSERS) ||
                   JSON.stringify(transaction).includes(PredefinedDbPaths.STAKEHOLDER) ||
@@ -592,7 +593,7 @@ describe('Integration Tests', () => {
       it('maintaining correct order', () => {
         for (let i = 1; i < SERVERS.length; i++) {
           sendTransactions(sentOperations);
-          waitUntilNewBlock();
+          waitForNewBlocks();
           body1 = JSON.parse(syncRequest('GET', server1 + GET_VALUE_ENDPOINT + '?ref=test')
               .body.toString('utf-8'));
           body2 = JSON.parse(syncRequest('GET', SERVERS[i] + GET_VALUE_ENDPOINT + '?ref=test')
@@ -637,7 +638,7 @@ describe('Integration Tests', () => {
 
       it('keeps track of nonces correctly after committing to a block', () => {
         return new Promise((resolve, reject) => {
-          waitUntilNewBlock();
+          waitForNewBlocks();
           let promises = [];
           promises.push(jsonRpcClient.request(JSON_RPC_GET_NONCE,
               { address, protoVer: CURRENT_PROTOCOL_VERSION }));
@@ -658,14 +659,14 @@ describe('Integration Tests', () => {
       it('and can be stopped and restarted', () => {
         console.log(`Shutting down server[0]...`);
         SERVER_PROCS[0].kill();
-        for (let i = 0; i < 2; i++){
-          waitUntilNewBlock();
-        }
+        sleep(10000);
         console.log(`Starting server[0]...`);
         SERVER_PROCS[0].start();
+        sleep(2000);
+        waitForNewBlocks();
         for (let i = 0; i < 4; i++){
           sendTransactions(sentOperations);
-          waitUntilNewBlock();
+          waitForNewBlocks();
         }
         const lastBlockFromRunningBlockchain =
             JSON.parse(syncRequest('GET', server1 + '/blocks').body.toString('utf-8')).result.pop();
