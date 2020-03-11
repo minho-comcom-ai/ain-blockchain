@@ -264,7 +264,7 @@ class P2pServer {
             }
             break;
           case MessageTypes.CHAIN_SUBSECTION:
-            const isEndOfChain = data.number === data.chainSubsection[data.chainSubsection.length - 1].number;
+            const isEndOfChain = data.number > 0 && data.number === data.chainSubsection[data.chainSubsection.length - 1].number;
             logger.info(`\n\nCHAIN_SUBSECTION RECEIVED (${data.number}, [ ${data.chainSubsection[0].number} ... ${data.chainSubsection[data.chainSubsection.length - 1].number} ], ${isEndOfChain})\n\n`)
             if (!this.node.initialized) {
               logger.info(`Node is not yet initialized`);
@@ -274,16 +274,17 @@ class P2pServer {
             // merged on top of your local blockchain
             const lastBlockNumberBeforeMerge = this.node.bc.lastBlockNumber();
             if (this.node.bc.merge(data.chainSubsection, isEndOfChain)) {
+              // TODO (lia): update this merge & apply snapshot logic
               const lastBlockNumberAfterMerge = this.node.bc.lastBlockNumber();
               this.node.db.setDbToSnapshot(this.node.bc.backupDb);
               data.chainSubsection.forEach(block => {
                 if (block.number > lastBlockNumberBeforeMerge && block.number < data.number) {
-                  this.node.db.applyBlock(block);
-                  // this.node.tp.updateCommittedNonces(block.transactions);
-                  // this.node.tp.removeCommittedTransactions(block);
+                  // this.node.db.applyBlock(block);
+                  this.node.bc.backupDb.applyBlock(block);
                   this.node.tp.cleanUpForNewBlock(block);
                 }
               })
+              this.node.db.setDbToSnapshot(this.node.bc.backupDb);
               this.node.db.executeTransactionList(this.node.tp.getValidTransactions());
               if (data.number === lastBlockNumberAfterMerge + 1) {
                 if (!this.node.bc.syncedAfterStartup) {
@@ -483,11 +484,10 @@ class P2pServer {
     } else {
       const transaction = transactionWithSig instanceof Transaction ?
           transactionWithSig : new Transaction(transactionWithSig);
-      logger.debug("\nexecuteAndBroadcastTransaction, transaction: ", transaction, "\n")
       const response = this.executeTransaction(transaction, type);
-      logger.debug(`\nRESPONSE: `, response, `\nCURRENT CONSENSUS STATE: `, this.node.db.getValue('/consensus'))
+      logger.debug(`\nRESPONSE: ` + JSON.stringify(response))
       if (ChainUtil.txExecutedSuccessfully(response)) {
-        this.broadcastTransaction(transaction, from, type);
+        this.broadcastTransaction(transactionWithSig, from, type);
       }
       return response;
     }

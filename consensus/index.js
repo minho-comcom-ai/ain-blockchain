@@ -68,11 +68,12 @@ class Consensus {
       logger.debug(`[Consensus:startConsensusRoutine] Queue length before: ${this.voteQueue.length}`);
       const message = this.voteQueue.shift();
       logger.debug(`[Consensus:startConsensusRoutine] Queue length after: ${this.voteQueue.length}`);
+      logger.debug(`[Consensus:startConsensusRoutine] Current state: number ${this.state.number}, step ${this.state.step}`)
       // Try proceeding to the next step if the queue is empty (message is undefined).
       // Do not process message if it's no longer relevant.
       if (message === undefined || message.id === ConsensusRoutineIds.PROCEED) {
         if (message !== undefined && (message.number < this.state.number ||
-              (message.number === this.state.number && message.step <= this.state.step))) {
+              (message.number === this.state.number && message.step < this.state.step))) {
           return;
         }
         switch (this.state.step) {
@@ -83,10 +84,10 @@ class Consensus {
             this.enterOrStayInPrevote();
             break;
           case ConsensusSteps.PREVOTE:
-            this.enterOrStayInPrecommit();
+            this.enterOrStayInPrevote();
             break;
           case ConsensusSteps.PRECOMMIT:
-            this.enterOrStayInCommit();
+            this.enterOrStayInPrecommit();
             break;
           case ConsensusSteps.COMMIT:
             this.enterOrStayInNewNumber();
@@ -95,11 +96,12 @@ class Consensus {
       } else if (message.id === ConsensusRoutineIds.HANDLE_VOTE) {
         this.handleConsensusTransaction(message.tx, message.from);
       }
-    }, 1000);
+    // }, 1000);
+    }, 300);
   }
 
   stopConsensusRoutine() {
-
+    // TODO (lia): Implement this function
   }
 
   enqueue(message) {
@@ -186,6 +188,9 @@ class Consensus {
     }
     this.state.number = lastBlockNumber + 1;
     this.state.step = ConsensusSteps.NEW_NUMBER;
+    // FIX ME: These two values might have to be adjusted case by case
+    this.state.proposedBlock = null;
+    this.state.proposer = null;
     // 2. Apply last_votes in the unfinalized block (candidate) from the blockPool. This is the block
     //    that comes after the last finalized block but I do not have votes for it yet.
     const candidate = this.node.bc.blockPool[this.state.number];
@@ -207,6 +212,13 @@ class Consensus {
   }
 
   handleConsensusTransaction(rawTx, from) {
+    const inTxPool = this.node.tp.transactions[rawTx.hash];
+    if (inTxPool) {
+      // Consensus tx only exists in txPool's tx tracker if it's been
+      // included in a block.
+      logger.degug("[Consensus:handleConsensusTransaction] vote already in tx tracker");
+      return;
+    }
     if (!rawTx || !Transaction.hasRequiredFields(rawTx) || rawTx.nonce !== -1 ||
         !ConsensusUtil.isValidOpType(rawTx) || !ConsensusUtil.isValidRef(rawTx)) {
       logger.error("Invalid tx type or ref (possibly a get or a rule/owner setting transaction)");
@@ -220,18 +232,21 @@ class Consensus {
       return;
     }
     if (this.hasSeenVote(rawTx.hash, parsedTx.number)) {
-      logger.debug("[Consensus:handleConsensusTransaction] already seen this vote:" + JSON.stringify(parsedTx, null, 2));
-      return;
-    }
-    const response = this.server.executeAndBroadcastTransaction(rawTx, from, MessageTypes.CONSENSUS);
-    if (!ChainUtil.txExecutedSuccessfully(response)) {
-      logger.error("Consensus tx failed. Tx:" + JSON.stringify(rawTx, null, 2) + "result:" + JSON.stringify(response));
-      // TODO (lia): return better error codes
-      if (parsedTx.number > this.state.number) {
-        logger.debug(`[${parsedTx.number} / ${this.state.number}] Tx failed possibly because we're out of sync. Requesting chain subsections to catch up...`);
-        this.server.requestChainSubsection(this.node.bc.lastBlock());
+      if (parsedTx.number <= this.state.number) {
+        logger.debug("[Consensus:handleConsensusTransaction] already seen this vote:" + JSON.stringify(parsedTx, null, 2));
+        return;
       }
-      return;
+    } else {
+      const response = this.server.executeAndBroadcastTransaction(rawTx, from, MessageTypes.CONSENSUS);
+      if (!ChainUtil.txExecutedSuccessfully(response)) {
+        logger.error("Consensus tx failed. Tx:" + JSON.stringify(rawTx, null, 2) + "result:" + JSON.stringify(response));
+        // TODO (lia): return better error codes
+        if (parsedTx.number > this.state.number) {
+          logger.debug(`[${parsedTx.number} / ${this.state.number}] Tx failed possibly because we're out of sync. Requesting chain subsections to catch up...`);
+          this.server.requestChainSubsection(this.node.bc.lastBlock());
+        }
+        return;
+      }
     }
     // TODO (lia): reduce the number of times a tx is unmarshalled
     const tx = new Transaction(rawTx);
@@ -374,6 +389,25 @@ class Consensus {
     return false;
   }
 
+  // Applies votes from this.state.votes that are for blocks with numbers >= 'number'.
+  applyVotesToDb(number) {
+    const keys = Object.keys(this.state.votes).sort();
+    for (let i = 0; i < keys.length; i++) {
+      if (keys[i] >= number) {
+        const voteList = this.state.votes[keys[i]];
+        for (let j = 0; j < voteList.length; j++) {
+          const vote = voteList[j];
+          if (vote.type === ConsensusMessageTypes.PROPOSE && vote.block !== undefined) {
+            vote.tx.block = vote.block;
+          }
+          this.server.executeTransaction(vote.tx, MessageTypes.CONSENSUS);
+        }
+      } else {
+        logger.debug(`keys[i] (${keys[i]}) < number (${number})`)
+      }
+    }
+  }
+
   proposalFromVoteList(number) {
     const voteList = this.state.votes[number];
     if (!voteList) return null;
@@ -440,8 +474,8 @@ class Consensus {
           this.state.proposedBlock = proposalTx.block;
           this.state.proposer = proposalTx.address;
           this.state.step = ConsensusSteps.PROPOSE;
-          // this.enterOrStayInPrevote();
-          this.enqueue({id: ConsensusRoutineIds.PROCEED, number: this.state.number, step: this.state.step});
+          this.enterOrStayInPrevote();
+          // this.enqueue({id: ConsensusRoutineIds.PROCEED, number: this.state.number, step: this.state.step});
         } else {
           logger.debug(`[Consensus:enterOrStayInPropose] No proposal has been received`);
         }
@@ -449,8 +483,8 @@ class Consensus {
     } else {
       logger.debug(`[Consensus:enterOrStayInPropose] Proposal block already set`);
       this.state.step = ConsensusSteps.PROPOSE;
-      // this.enterOrStayInPrevote();
-      this.enqueue({id: ConsensusRoutineIds.PROCEED, number: this.state.number, step: this.state.step});
+      this.enterOrStayInPrevote();
+      // this.enqueue({id: ConsensusRoutineIds.PROCEED, number: this.state.number, step: this.state.step});
     }
   }
 
@@ -543,15 +577,20 @@ class Consensus {
     if (catchingUp || this.node.bc.addNewBlock(this.state.proposedBlock)) {
       // TODO (lia): reset tempSnapshot and apply block's last_votes and transactions to the db's tempSnapshot
       if (!catchingUp) {
-        if (!this.node.db.applyBlock(this.state.proposedBlock)) {
+        this.node.db.setDbToSnapshot(this.node.bc.backupDb);
+        if (!this.node.bc.backupDb.applyBlock(this.state.proposedBlock)) {
           logger.debug(`Failed to apply the new committed block. Something is wrong.\n`+
               `proposedBlock: ${this.state.proposedBlock}`);
           return;
         }
+        this.node.db.setDbToSnapshot(this.node.bc.backupDb);
+        // Since db set to finalized db and last committed block of number n applied,
+        // we need to apply the votes for m >= n as well as valid txs from txPool.
+        this.applyVotesToDb(this.state.number);
       }
-      // Remove committed txs from txpool
-      // this.node.tp.removeCommittedTransactions(this.state.proposedBlock);
+      // Remove committed txs from txpool and update tx and nonce trackers
       this.node.tp.cleanUpForNewBlock(this.state.proposedBlock);
+      this.node.db.executeTransactionList(this.node.tp.getValidTransactions());
       logger.debug(`\nthis.state BEFORE: ${JSON.stringify(this.state)}\n`);
       if (this.state.votes[this.state.number - 1]) {
         // Leave votes for current block as lastVotes for next block
@@ -646,7 +685,7 @@ class Consensus {
       // TODO (lia): punish/blacklist the proposer node
       return false;
     }
-    logger.debug(`[Consensus:checkProposal] lastBlock: ${this.node.bc.lastBlockNumber()}, ${this.node.bc.lastBlock().hash}\nIncoming proposal: ${proposal.block.number}, ${proposal.block_hash}`)
+    logger.debug(`[Consensus:checkProposal] lastBlock: ${this.node.bc.lastBlockNumber()}, ${this.node.bc.lastBlock() ? this.node.bc.lastBlock().hash : null}\nIncoming proposal: ${proposal.block.number}, ${proposal.block_hash}`)
     if (proposal.block.number === this.node.bc.lastBlockNumber() &&
         proposal.block_hash === this.node.bc.lastBlock().hash) {
       // Receiving a proposal for the (already committed) last block.
@@ -660,12 +699,15 @@ class Consensus {
       return false;
     }
     // Validate and execute the last_votes and transactions from the proposedBlock.
-    if (!this.node.db.applyBlock(proposedBlock)) {
-      // if(DEBUG) {
-        logger.debug(`[Consensus:checkProposal] REJECTING BLOCK DUE TO INVALID TXS: ${proposedBlock}`);
-      // }
-      return false;
-    }
+    // TODO (lia): Validate the block against a snapshot of the finalized db.
+    // this.node.db.setDbToSnapshot(this.node.bc.backupDb);
+    // if (!this.node.db.applyBlock(proposedBlock)) {
+    //   // if(DEBUG) {
+    //     logger.debug(`[Consensus:checkProposal] REJECTING BLOCK DUE TO INVALID TXS: ${proposedBlock}`);
+    //   // }
+    //   return false;
+    // }
+    // this.applyVotesToDb(proposedBlock.number);
     return true;
   }
 
@@ -756,7 +798,7 @@ class Consensus {
   }
 
   hasSeenVote(hash, number) {
-    return this.state.votes[number] ? this.state.votes[number][hash] !== undefined : false;
+    return this.state.votes[number] ? this.state.votes[number].filter(vote => vote.tx.hash === hash).length : false;
   }
 
   setNumber(newNumber) {

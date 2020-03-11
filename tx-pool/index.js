@@ -165,6 +165,24 @@ class TransactionPool {
       inBlockTxs.add(tx.hash);
     }
 
+    for (let i = 0; i < block.last_votes.length; i++) {
+      const tx = block.last_votes[i];
+      // Update committed nonce tracker.
+      if (tx.nonce >= 0) {
+        // This shouldn't happen..
+        logger.debug("Found a consensus transaction with a nonce >= 0: " + JSON.stringify(tx, null, 2));
+        this.committedNonceTracker[tx.address] = tx.nonce;
+      }
+      // Update transaction tracker.
+      this.transactionTracker[tx.hash] = {
+        status: TransactionStatus.BLOCK_STATUS,
+        number: block.number,
+        index: i,
+        timestamp: tx.timestamp,
+      };
+      inBlockTxs.add(tx.hash);
+    }
+
     for (const address in this.transactions) {
       // Remove transactions from the pool.
       this.transactions[address] = this.transactions[address].filter((tx) => {

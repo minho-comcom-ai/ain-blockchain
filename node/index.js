@@ -94,7 +94,6 @@ class Node {
   }
 
   reconstruct(isInitializing = false) {
-    // TODO (lia): update reconstructing logic
     logger.info('Reconstructing database');
     this.db.setDbToSnapshot(this.bc.backupDb);
     this.executeChainOnDb(isInitializing);
@@ -110,7 +109,6 @@ class Node {
       const block = this.bc.chain[i];
       this.bc.backupDb.applyBlock(block);
       this.tp.updateNonceTrackers(block.transactions);
-      // this.tp.updateCommittedNonces(block.transactions);
     }
     this.db.setDbToSnapshot(this.bc.backupDb);
   }

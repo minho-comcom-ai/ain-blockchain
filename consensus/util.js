@@ -129,7 +129,6 @@ class ConsensusUtil {
   }
 
   static isProposerForNumber(db, bc, number, address) {
-    logger.debug(`[ConsensusUtil:isProposerForNumber] typeof 'number' is ${typeof number}`)
     let proposer = ConsensusUtil.getProposerForNumber(db, number);
     logger.debug(`[ConsensusUtil:isProposerForNumber] proposer from state: ${proposer}`);
     if (proposer) {
