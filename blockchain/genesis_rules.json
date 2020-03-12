@@ -41,7 +41,7 @@
       "$uid": {
         "$deposit_id": {
           "value": {
-            ".write": "auth === $uid && !getValue('/deposit/' + $service_id + '/' + $uid + '/' + $deposit_id) && (util.length($uid) !== 42 || util.isCksumAddr($uid)) && util.isNumber(newData) && getValue('/accounts/' + $uid + '/balance') >= newData"
+            ".write": "auth === $uid && data === null && (util.length($uid) !== 42 || util.isCksumAddr($uid)) && util.isNumber(newData) && getValue('/accounts/' + $uid + '/balance') >= newData"
           },
           "createdAt": {
             ".write": false
@@ -54,7 +54,7 @@
     ".write": false,
     "$service_id": {
       "config": {
-        ".write": "!getValue('/deposit_accounts/' + $service_id) || (getOwner('/deposit_accounts/' + $service_id) && getOwner('/deposit_accounts/' + $service_id).owners && getOwner('/deposit_accounts/' + $service_id).owners[auth])"
+        ".write": "getValue('/deposit_accounts/' + $service_id) === null || (getOwner('/deposit_accounts/' + $service_id) && getOwner('/deposit_accounts/' + $service_id).owners && getOwner('/deposit_accounts/' + $service_id).owners[auth])"
       },
       "$uid": {
         ".write": false
@@ -71,7 +71,7 @@
       "$to": {
         "$key": {
           "value": {
-            ".write": "auth === $from && !getValue('transfer/' + $from + '/' + $to + '/' + $key) && (util.length($from) !== 42 || util.isCksumAddr($from)) && (util.length($to) !== 42 || util.isCksumAddr($to)) && $from !== $to && util.isNumber(newData) && getValue('accounts/' + $from + '/balance') >= newData"
+            ".write": "auth === $from && data === null && (util.length($from) !== 42 || util.isCksumAddr($from)) && (util.length($to) !== 42 || util.isCksumAddr($to)) && $from !== $to && util.isNumber(newData) && getValue('accounts/' + $from + '/balance') >= newData"
           }
         }
       }
@@ -82,7 +82,7 @@
       "$uid": {
         "$withdraw_id": {
           "value": {
-            ".write": "auth === $uid && !getValue('/withdraw/' + $service_id + '/' + $uid + '/' + $withdraw_id) && util.isNumber(newData) && getValue('/deposit_accounts/' + $service_id + '/' + $uid + '/value') >= newData"
+            ".write": "auth === $uid && data === null && util.isNumber(newData) && getValue('/deposit_accounts/' + $service_id + '/' + $uid + '/value') >= newData"
           },
           "createdAt": {
             ".write": false
