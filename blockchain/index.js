@@ -14,7 +14,6 @@ class Blockchain {
   constructor(blockchainDir) {
     this.chain = [];
     this.blockchainDir = blockchainDir;
-    this.backupDb = null;
     this.blockPool = {};
     this.syncedAfterStartup = false;
   }
@@ -27,14 +26,14 @@ class Blockchain {
         logger.info("## Starting FIRST-NODE blockchain with a GENESIS block... ##");
         logger.info("############################################################");
         logger.info("\n");
-        this.chain = [Block.genesis()];
-        this.writeChain();
+        return [Block.genesis()];
       } else {
         logger.info("\n");
         logger.info("#############################################################");
         logger.info("## Starting NON-FIRST-NODE blockchain with EMPTY blocks... ##");
         logger.info("#############################################################");
         logger.info("\n");
+        return [];
       }
     } else {
       if (isFirstNode) {
@@ -50,14 +49,7 @@ class Blockchain {
         logger.info("################################################################");
         logger.info("\n");
       }
-      let newChain = Blockchain.loadChain(this._blockchainDir());
-      if (newChain) {
-        this.chain = newChain;
-        const lastBlock = this.chain.pop();
-        // Keep the last block in the blockPool until we see the votes for the block.
-        // (regard it as it's not finalized)
-        this.blockPool[lastBlock.number] = lastBlock;
-      }
+      return Blockchain.loadChain(this._blockchainDir());
     }
   }
 
@@ -85,13 +77,6 @@ class Blockchain {
     if (number === undefined || number === null) return null;
     const blockFileName = this.getBlockFiles(number, number + 1).pop();
     return blockFileName === undefined ? null : Block.loadBlock(blockFileName);
-  }
-
-  setBackupDb(backupDb) {
-    if (this.backupDb !== null) {
-      throw Error('Already set backupdb');
-    }
-    this.backupDb = backupDb;
   }
 
   lastBlock() {
@@ -131,7 +116,6 @@ class Blockchain {
       block = Block.parse(block);
     }
     this.chain.push(block);
-    this.backupDb.applyBlock(block);
     while (this.chain.length > 10) {
       this.chain.shift();
     }
@@ -238,8 +222,7 @@ class Blockchain {
     return chainSubSection.length > 0 ? chainSubSection: null;
   }
 
-  merge(chainSubSection, isEndOfChain) {
-    // Call to shift here is important as it removes the first element from the list !!
+  shouldAppendChainSubsection(chainSubSection) {
     logger.info(`Last block number before merge: ${this.lastBlockNumber()}`);
     if (chainSubSection.length === 0) {
       logger.info('Empty chain sub section');
@@ -279,31 +262,6 @@ class Blockchain {
         return false;
       }
     }
-    if (!Blockchain.isValidChainSubsection(chainSubSection)) {
-      logger.error('Invalid chain subsection');
-      return false;
-    }
-    const len = isEndOfChain ? chainSubSection.length - 1 : chainSubSection.length;
-    for (let i = 0; i < len; i++) {
-      // Skip the first block if it's not a cold start (i.e., starting from genesis block).
-      if (lastBlockHash && i === 0) {
-        logger.info(`\n[blockchain:merge] Skipping first block...\n`)
-        continue;
-      }
-      const block = chainSubSection[i];
-      if (!this.addNewBlock(block)) {
-        logger.error('Failed to add block '+ block);
-        return false;
-      }
-      if (this.blockPool[block.number]) {
-        delete this.blockPool[block.number];
-      }
-    }
-    if (isEndOfChain) {
-      const lastBlockFromSubsection = chainSubSection[chainSubSection.length - 1];
-      this.blockPool[lastBlockFromSubsection.number] = lastBlockFromSubsection;
-    }
-    logger.info(`Last block number after merge: ${this.lastBlockNumber()}`);
     return true;
   }
 
@@ -349,6 +307,18 @@ class Blockchain {
       chain.push(block);
     });
     return chain;
+  }
+
+  updateBlockPoolForNewBlock(block) {
+    if (!block) return;
+    const target = block.number;
+    const numbers = Object.keys(this.blockPool).sort();
+    let i = 0;
+    let len = numbers.length;
+    while (i < len && numbers[i] < target) {
+      delete this.blockPool[numbers[i++]];
+    }
+    this.blockPool[target] = block;
   }
 }
 

@@ -96,8 +96,8 @@ class Consensus {
       } else if (message.id === ConsensusRoutineIds.HANDLE_VOTE) {
         this.handleConsensusTransaction(message.tx, message.from);
       }
-    // }, 1000);
-    }, 300);
+    }, 1000);
+    // }, 300);
   }
 
   stopConsensusRoutine() {
@@ -113,37 +113,6 @@ class Consensus {
     this.voteQueue.push(message);
     logger.debug(`[Consensus:enqueue] Queue length after: ${this.voteQueue.length}`);
   }
-
-  /**
-   * Try to update the consensus state to the last committed block.
-   * The votes for this 'block' and last_votes have to be applied by catchUpConsensusState().
-   * @param {*} block 
-   */
-  // tryUpdateToLastBlockState(block, shouldUpdateVoteSet) {
-  //   if (!block || this.state.number > block.number) {
-  //     logger.debug(`[Consensus:tryUpdateToLastBlockState] Can't update consensus state.`)
-  //     return false;
-  //   }
-  //   if (this.node.bc.lastBlockNumber() !== block.number) {
-  //     logger.debug(`[Consensus:tryUpdateToLastBlockState] lastBlockNumber (${this.node.bc.lastBlockNumber()}) doesn't equal block.number (${block.number}). state.number: ${this.state.number}`)
-  //     return false;
-  //   }
-  //   logger.debug(`[Consensus:tryUpdateToLastBlockState] Updating state to number ${block.number}`);
-  //   // TODO (lia): execute and add last_votes of block.
-  //   this.state = {
-  //     number: block.number, // + 1, // To get the votes for the committed block (last_votes for the block to be proposed)
-  //     step: ConsensusSteps.NEW_NUMBER,
-  //     proposedBlock: null,
-  //     votes: {}
-  //   };
-
-  //   // FIX ME: Fix reconstructing chain and starting consensus logic.
-  //   if (shouldUpdateVoteSet) {
-  //     const secondToLastBlock = this.node.bc.chain[this.node.bc.chain.length - 2];
-  //     this.addVoteListFromBlocks(block, secondToLastBlock);
-  //     this.startConsensusRoutine()
-  //   }
-  // }
 
   catchUpConsensusState(consensusState) {
     if (!consensusState) {
@@ -266,22 +235,18 @@ class Consensus {
   handleProposal(tx, parsedTx) {
     const { block, block_hash, number, address } = parsedTx;
     if (this.state.number !== number) {
-      // if (this.node.bc.lastBlockNumber() !== number /*|| this.proposalFromVoteList(number)*/) {
-        if (number > this.state.number) {
-          logger.debug(`[Consensus:handleProposal] Received a future proposal. Adding to the vote set.`);
-          // TODO (lia): validate proposal
-          this.addVote(tx, parsedTx);
-          this.enqueue({id: ConsensusRoutineIds.PROCEED, number: this.state.number, step: this.state.step});
-        } else if (number === this.state.number - 1 && !this.proposalFromVoteList(number)) {
-          logger.debug(`[Consensus:handleProposal] Trying to add a proposal for a previous number`);
-          this.addVote(tx, parsedTx);
-        } else {
-          logger.debug(`[Consensus:handleProposal] Received a proposal for a wrong block number (Expected: ${this.state.number}, Received: ${number})`);
-        }
-        return;
-      // } else {
-      //   logger.debug("[Consensus:handleProposal] Catching up.. received a proposal for the last committed block.");
-      // }
+      if (number > this.state.number) {
+        logger.debug(`[Consensus:handleProposal] Received a future proposal. Adding to the vote set.`);
+        // TODO (lia): validate proposal
+        this.addVote(tx, parsedTx);
+        this.enqueue({id: ConsensusRoutineIds.PROCEED, number: this.state.number, step: this.state.step});
+      } else if (number === this.state.number - 1 && !this.proposalFromVoteList(number)) {
+        logger.debug(`[Consensus:handleProposal] Trying to add a proposal for a previous number`);
+        this.addVote(tx, parsedTx);
+      } else {
+        logger.debug(`[Consensus:handleProposal] Received a proposal for a wrong block number (Expected: ${this.state.number}, Received: ${number})`);
+      }
+      return;
     }
 
     if (this.state.proposedBlock) {
@@ -436,7 +401,6 @@ class Consensus {
     }
     this.state.number = newNumber;
     this.state.step = ConsensusSteps.NEW_NUMBER;
-    // sleep(2000);
     // this.enterOrStayInPropose();
     this.enqueue({id: ConsensusRoutineIds.PROCEED, number: this.state.number, step: this.state.step});
   }
@@ -569,43 +533,31 @@ class Consensus {
     this.enqueue({id: ConsensusRoutineIds.PROCEED, number: this.state.number, step: this.state.step});
   }
 
-  // TODO (lia): update blockPool
   commit() {
     logger.debug(`\n[Consensus:commit] number: ${this.state.number}, step: ${this.state.step}\n`)
     const  catchingUp = this.node.bc.lastBlockNumber() >= this.state.number;
     logger.debug(`[Consensus:commit] catching up: ${catchingUp} (lastBlockNumber: ${this.node.bc.lastBlockNumber()})`);
-    if (catchingUp || this.node.bc.addNewBlock(this.state.proposedBlock)) {
-      // TODO (lia): reset tempSnapshot and apply block's last_votes and transactions to the db's tempSnapshot
-      if (!catchingUp) {
-        this.node.db.setDbToSnapshot(this.node.bc.backupDb);
-        if (!this.node.bc.backupDb.applyBlock(this.state.proposedBlock)) {
-          logger.debug(`Failed to apply the new committed block. Something is wrong.\n`+
-              `proposedBlock: ${this.state.proposedBlock}`);
-          return;
-        }
-        this.node.db.setDbToSnapshot(this.node.bc.backupDb);
-        // Since db set to finalized db and last committed block of number n applied,
-        // we need to apply the votes for m >= n as well as valid txs from txPool.
-        this.applyVotesToDb(this.state.number);
-      }
-      // Remove committed txs from txpool and update tx and nonce trackers
-      this.node.tp.cleanUpForNewBlock(this.state.proposedBlock);
-      this.node.db.executeTransactionList(this.node.tp.getValidTransactions());
-      logger.debug(`\nthis.state BEFORE: ${JSON.stringify(this.state)}\n`);
-      if (this.state.votes[this.state.number - 1]) {
-        // Leave votes for current block as lastVotes for next block
-        delete this.state.votes[this.state.number - 1];
-      }
+    if (this.node.verifyAndAppendBlock(this.state.proposedBlock)) {
+      this.cleanUpVotes(this.state.proposedBlock.number);
+      // Since db set to finalized db and last committed block of number n applied,
+      // we need to apply the votes for m >= n as well as valid txs from txPool.
+      this.applyVotesToDb(this.state.number);
       this.state.proposedBlock = null;
       this.state.proposer = null;
-      logger.debug(`\nthis.state AFTER: ${JSON.stringify(this.state)}\n`);
-      if (this.node.bc.blockPool[this.state.number]) {
-        logger.debug(`[Consensus:commit] deleting ` + JSON.stringify(this.node.bc.blockPool[this.state.number]) + `from blockPool`);
-        delete this.node.bc.blockPool[this.state.number];
-      }
     } else {
-      // TODO (lia): reset tempSnapshot
-      logger.debug(`Failed to commit a block: unable to append the block to the blockchain.`);
+      logger.error("Failed to commit a block:" + JSON.stringify(this.state.proposedBlock, null, 2));
+      // TODO (lia): discard any votes for this block
+      // TODO (lia): start another round for this number
+    }
+  }
+
+  cleanUpVotes(latestNumber) {
+    const numbers = Object.keys(this.state.votes).sort();
+    let i = 0;
+    let len = numbers.length;
+    // Keep votes for blocks with numbers >= latestNumber 
+    while (i < len && numbers[i] < latestNumber) {
+      delete this.state.votes[numbers[i++]];
     }
   }
 
@@ -621,7 +573,7 @@ class Consensus {
     // Extract only the transactions.
     for (let vote of lastVoteTxList) {
       logger.debug("Adding a last vote to a new block:" + JSON.stringify(vote.tx, null, 2));
-      let voteTx = Object.assign({}, vote.tx);
+      let voteTx = JSON.parse(JSON.stringify(vote.tx));
       if (voteTx.block) {
         delete voteTx.block;
       }
@@ -698,17 +650,7 @@ class Consensus {
       // }
       return false;
     }
-    // Validate and execute the last_votes and transactions from the proposedBlock.
-    // TODO (lia): Validate the block against a snapshot of the finalized db.
-    // this.node.db.setDbToSnapshot(this.node.bc.backupDb);
-    // if (!this.node.db.applyBlock(proposedBlock)) {
-    //   // if(DEBUG) {
-    //     logger.debug(`[Consensus:checkProposal] REJECTING BLOCK DUE TO INVALID TXS: ${proposedBlock}`);
-    //   // }
-    //   return false;
-    // }
-    // this.applyVotesToDb(proposedBlock.number);
-    return true;
+    return this.node.db.verifyBlockOnSnapshot(proposedBlock) !== null;
   }
 
   prevote() {

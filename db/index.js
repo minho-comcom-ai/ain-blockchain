@@ -9,6 +9,11 @@ const BuiltInRuleUtil = require('./built-in-rule-util');
 class DB {
   constructor(node) {
     this.node = node;
+    // The state of the db up to the latest committed block.
+    // Gets updated only when a block is committed.
+    this.finalizedDb = {};
+    // The state of the db where all the valid transactions from
+    // the transaction pool have been applied onto the finalizedDb.
     this.dbData = {};
     this.initDbData();
     this.func = new Functions(this);
@@ -32,26 +37,61 @@ class DB {
     this.writeDatabase([PredefinedDbPaths.RULES_ROOT], {
       [RuleProperties.WRITE]: true
     });
+    // The only time we set finalizedDb from dbData. Maybe there's a better way..
+    this.finalizedDb = JSON.parse(JSON.stringify(this.dbData));
+  }
+
+  // Creates a snapshot of this database's finalized state.
+  createSnapshot() {
+    const snapshot = new DB(this.node);
+    snapshot.dbData = JSON.parse(JSON.stringify(this.finalizedDb));
+    return snapshot;
+  }
+
+  updateFinalizedDbForNewBlock(snapshot) {
+    this.finalizedDb = JSON.parse(JSON.stringify(snapshot));
+  }
+
+  setDbToFinalizedDb() {
+    this.dbData = JSON.parse(JSON.stringify(this.finalizedDb));
+  }
+
+  // Verify block transactions by trying to apply them on a snapshot of this.finalizedDb
+  // and return updated snapshot if successfully verified, null otherwise.
+  verifyBlockOnSnapshot(block, snapshot) {
+    if (!snapshot) snapshot = this.createSnapshot();
+    if (snapshot.applyBlock(block)) {
+      logger.debug("Block applied to the snapshot.");
+      return snapshot;
+    } else {
+      logger.debug("Block could not be applied to the snapshot.");
+      return null;
+    }
   }
 
   // TODO (lia): Apply txs on a temp snapshot and revert changes if any one of
   // them failed. Update snapshot if successful.
   applyBlock(block) {
-    block.last_votes.forEach((vote) => {
+    let lastVotesLen = block.last_votes.length;
+    for (let i = 0; i < lastVotesLen; i++) {
+      const vote = block.last_votes[i];
       const result = this.executeTransaction(vote);
       if (!ChainUtil.txExecutedSuccessfully(result)) {
         logger.debug(`\nUnsuccessful last_vote execution:\n${JSON.stringify(vote)}\nRESULT: ${JSON.stringify(result)}\n`);
-        // return false;
+        return false;
       }
-    });
+    }
     
-    block.transactions.forEach((tx) => {
+    let txsLen = block.transactions.length;
+    for (let i = 0; i < txsLen; i++) {
+      const tx = block.transactions[i];
       const result = this.executeTransaction(tx);
       if (!ChainUtil.txExecutedSuccessfully(result)) {
-        logger.debug(`\nUnsuccessful block transaction execution:\n${JSON.stringify(tx)}\nRESULT: ${JSON.stringify(result)}\n`);
-        // return false;
+        logger.debug(`\nUnsuccessful block transaction execution:\n${JSON.stringify(tx, null, 2)}\nRESULT: ${JSON.stringify(result)}\n`);
+        logger.debug("Current state:" + JSON.stringify(this.dbData, null, 2));
+        return false;
       }
-    });
+    }
     return true;
   }
 
@@ -342,10 +382,6 @@ class DB {
       subData = subData[key];
     });
     return subData;
-  }
-
-  setDbToSnapshot(snapshot) {
-    this.dbData = JSON.parse(JSON.stringify(snapshot.dbData));
   }
 
   executeOperation(operation, address, timestamp) {

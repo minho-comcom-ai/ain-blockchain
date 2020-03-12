@@ -171,9 +171,7 @@ class P2pServer {
         timestamp: this.node.bc.lastBlockTimestamp(),
       },
       consensusStatus: {
-        state: this.consensus.state,
-        // statusChangedBlockNumber: this.votingUtil.statusChangedBlockNumber,
-        // setter: this.votingUtil.setter,
+        state: this.consensus.state
       },
       txStatus: {
         txPoolSize: this.node.tp.getPoolSize(),
@@ -247,6 +245,10 @@ class P2pServer {
             if (DEBUG) {
               logger.debug(`RECEIVING: ${JSON.stringify(data.transaction)}`);
             }
+            if (this.node.tp.transactionTracker[data.transaction.hash]) {
+              logger.debug("Already have the transaction in my tx tracker");
+              break;
+            }
             if (this.node.bc.syncedAfterStartup) {
               this.consensus.enqueue({id: ConsensusRoutineIds.HANDLE_VOTE, tx: data.transaction, from: address});
             } else {
@@ -257,7 +259,10 @@ class P2pServer {
             if (DEBUG) {
               logger.debug(`RECEIVING: ${JSON.stringify(data.transaction)}`);
             }
-            if (this.node.initialized) {
+            if (this.node.tp.transactionTracker[data.transaction.hash]) {
+              logger.debug("Already have the transaction in my tx tracker");
+              break;
+            } else if (this.node.initialized) {
               this.executeAndBroadcastTransaction(data.transaction, address, MessageTypes.TRANSACTION);
             } else {
               // Put the tx in the txPool?
@@ -270,23 +275,10 @@ class P2pServer {
               logger.info(`Node is not yet initialized`);
               return;
             }
-            // Check if chain subsection is valid and can be
-            // merged on top of your local blockchain
-            const lastBlockNumberBeforeMerge = this.node.bc.lastBlockNumber();
-            if (this.node.bc.merge(data.chainSubsection, isEndOfChain)) {
-              // TODO (lia): update this merge & apply snapshot logic
+            if (this.node.verifyAndAppendChain(data.chainSubsection)) {
               const lastBlockNumberAfterMerge = this.node.bc.lastBlockNumber();
-              this.node.db.setDbToSnapshot(this.node.bc.backupDb);
-              data.chainSubsection.forEach(block => {
-                if (block.number > lastBlockNumberBeforeMerge && block.number < data.number) {
-                  // this.node.db.applyBlock(block);
-                  this.node.bc.backupDb.applyBlock(block);
-                  this.node.tp.cleanUpForNewBlock(block);
-                }
-              })
-              this.node.db.setDbToSnapshot(this.node.bc.backupDb);
-              this.node.db.executeTransactionList(this.node.tp.getValidTransactions());
-              if (data.number === lastBlockNumberAfterMerge + 1) {
+              // If the chain is still at number 1, wait for more.
+              if (data.number === lastBlockNumberAfterMerge + 1 && lastBlockNumberAfterMerge > 1) {
                 if (!this.node.bc.syncedAfterStartup) {
                   logger.info(`\nNODE SYNCED AFTER START UP\n`)
                   this.node.bc.syncedAfterStartup = true;
@@ -304,7 +296,8 @@ class P2pServer {
             } else {
               logger.info(`\nFailed to merge incoming chain subsection.\nMy consensus state:`, this.consensus.state, `\nNew consensus state:`, data.consensusState)
               // Still might be able to update consensus state?
-              if (isEndOfChain) {
+              // If the chain is still at number 1, wait for more.
+              if (isEndOfChain && data.number > 1) {
                 if (!this.consensus.initialized) {
                   this.consensus.init(data.consensusState);
                 } else {
@@ -438,13 +431,6 @@ class P2pServer {
       logger.info('Transaction already received');
       return null;
     }
-    // if (this.node.bc.syncedAfterStartup === false) {
-    //   if (DEBUG) {
-    //     logger.debug(`NOT SYNCED YET. WILL ADD TX TO THE POOL: ${JSON.stringify(transaction)}`)
-    //   }
-    //   this.node.tp.addTransaction(transaction);
-    //   return null;
-    // }
     const result = this.node.db.executeTransaction(transaction);
     if (ChainUtil.txExecutedSuccessfully(result)) {
       if (type === MessageTypes.TRANSACTION) {

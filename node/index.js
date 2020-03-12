@@ -25,11 +25,11 @@ class Node {
   }
 
   init(isFirstNode) {
-    logger.info('Initializing node..')
-    this.bc.init(isFirstNode);
-    this.bc.setBackupDb(new DB(this));
-    this.nonce = this.getNonce();
-    this.reconstruct(true);
+    logger.info('Initializing node..');
+    const initialChain = this.bc.init(isFirstNode);
+    this.verifyAndAppendChain(initialChain);
+    const nonceFromNonceTracker = this.tp.committedNonceTracker[this.account.address];
+    this.nonce = nonceFromNonceTracker !== undefined ? nonceFromNonceTracker : 0;
     this.initialized = true;
   }
 
@@ -93,24 +93,73 @@ class Node {
     return Transaction.newTransaction(this.account.private_key, txData);
   }
 
-  reconstruct(isInitializing = false) {
-    logger.info('Reconstructing database');
-    this.db.setDbToSnapshot(this.bc.backupDb);
-    this.executeChainOnDb(isInitializing);
+  verifyAndAppendBlock(block) {
+    // TODO(lia): verify the last_votes of block
+    // 1. Verify block
+    const snapshot = this.db.verifyBlockOnSnapshot(block);
+    if (snapshot === null) {
+      logger.info("Verification of the block against the snapshot failed.");
+      return false;
+    }
+    // 2. Append block
+    if (!this.bc.addNewBlock(block)) {
+      return false;
+    }
+    // 3. Apply block to the finalized state
+    this.db.updateFinalizedDbForNewBlock(snapshot.dbData);
+    this.db.setDbToFinalizedDb();
+    this.tp.cleanUpForNewBlock(block);
+    this.bc.updateBlockPoolForNewBlock(block);
     this.db.executeTransactionList(this.tp.getValidTransactions());
+    return true;
   }
 
-  executeChainOnDb(isInitializing = false) {
-    logger.info(`\n[node:executeChainOnDb] chain length: ${this.bc.chain.length} lastBlockNumber: ${this.bc.lastBlockNumber()}\n`);
-    const len = this.bc.chain.length;
-    // If initializing, apply only the blocks up to last - 1 (discard the last block).
-    // TODO (lia): Use last_votes of the last block to update consensus state (during initialization)?
-    for (let i = 0; i < len; i++) {
-      const block = this.bc.chain[i];
-      this.bc.backupDb.applyBlock(block);
-      this.tp.updateNonceTrackers(block.transactions);
+  // Repeat the verify-append-apply process for each of the block in the chain subsection.
+  verifyAndAppendChain(chainSubSection) {
+    if (!this.bc.shouldAppendChainSubsection(chainSubSection)) {
+      return;
     }
-    this.db.setDbToSnapshot(this.bc.backupDb);
+    if (chainSubSection.length === 1) {
+      // We haven't seen the votes for this block. Maybe we should not append it
+      // and just put it in this.bc.blockPool?
+      return this.verifyAndAppendBlock(chainSubSection[0]);
+    }
+    let appended = false;
+    let blockWithoutVotes = chainSubSection[0];
+    const snapshot = this.db.createSnapshot();
+    const subsectionLen = chainSubSection.length;
+    for (let i = 0; i < subsectionLen - 1; i++) {
+      const block = chainSubSection[i];
+      const nextBlock = chainSubSection[i + 1];
+      const lastBlockNumber = this.bc.lastBlockNumber();
+      if (block.number > lastBlockNumber + 1) {
+        // Anything after this is invalid. Note that blocks that came before
+        // might have been applied and appended if they were valid.
+        break;
+      } else if (block.number === lastBlockNumber + 1) {
+        // TODO(lia): verify that the last_votes in 'nextBlock' form a commitment to 'block'.
+        if (this.db.verifyBlockOnSnapshot(block, snapshot) === null) {
+          logger.info("Verification of the block against the snapshot failed.");
+          break;
+        }
+        if (!this.bc.addNewBlock(block)) {
+          break;
+        }
+        this.db.updateFinalizedDbForNewBlock(snapshot.dbData);
+        this.tp.cleanUpForNewBlock(block);
+        this.bc.updateBlockPoolForNewBlock(block);
+        appended = true;
+        blockWithoutVotes = nextBlock;
+      } else {
+        // block number is too small (keep looking)
+      }
+    }
+    if (appended) {
+      this.db.setDbToFinalizedDb();
+      this.db.executeTransactionList(this.tp.getValidTransactions());
+      this.bc.blockPool[blockWithoutVotes.number] = blockWithoutVotes;
+    }
+    return appended;
   }
 }
 
