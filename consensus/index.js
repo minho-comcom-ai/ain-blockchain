@@ -94,7 +94,7 @@ class Consensus {
             break;
         }
       } else if (message.id === ConsensusRoutineIds.HANDLE_VOTE) {
-        this.handleConsensusTransaction(message.tx, message.from);
+        this.handleConsensusTransaction(message.tx);
       }
     }, 1000);
     // }, 300);
@@ -180,7 +180,7 @@ class Consensus {
     }
   }
 
-  handleConsensusTransaction(rawTx, from) {
+  handleConsensusTransaction(rawTx) {
     const inTxPool = this.node.tp.transactions[rawTx.hash];
     if (inTxPool) {
       // Consensus tx only exists in txPool's tx tracker if it's been
@@ -194,7 +194,7 @@ class Consensus {
       return;
     }
     const parsedTx = ConsensusUtil.parseConsensusTransaction(rawTx);
-    logger.debug(`[Consensus:handleConsensusTransaction] tx from ${from}:\nrawTx:` + JSON.stringify(rawTx, null, 2) + "\n\nparsedTx:" + JSON.stringify(parsedTx, null, 2))
+    logger.debug(`[Consensus:handleConsensusTransaction] rawTx:` + JSON.stringify(rawTx, null, 2) + "\n\nparsedTx:" + JSON.stringify(parsedTx, null, 2))
     if (!parsedTx) {
       // TODO (lia): reset temporary proposed block snapshot
       logger.error("Invalid consensus transaction received." + JSON.stringify(rawTx, null, 2));
@@ -206,7 +206,7 @@ class Consensus {
         return;
       }
     } else {
-      const response = this.server.executeAndBroadcastTransaction(rawTx, from, MessageTypes.CONSENSUS);
+      const response = this.server.executeAndBroadcastTransaction(rawTx, MessageTypes.CONSENSUS);
       if (!ChainUtil.txExecutedSuccessfully(response)) {
         logger.error("Consensus tx failed. Tx:" + JSON.stringify(rawTx, null, 2) + "result:" + JSON.stringify(response));
         // TODO (lia): return better error codes
@@ -427,7 +427,7 @@ class Consensus {
         this.state.step = ConsensusSteps.PROPOSE;
         const proposalWithBlock = Object.assign({}, proposal, { block: proposalBlock });
         this.addVote(proposal, ConsensusUtil.parseConsensusTransaction(proposalWithBlock));
-        this.server.broadcastTransaction(proposalWithBlock, '', MessageTypes.CONSENSUS);
+        this.server.broadcastTransaction(proposalWithBlock, MessageTypes.CONSENSUS);
         // this.enterOrStayInPrevote();
         this.enqueue({id: ConsensusRoutineIds.PROCEED, number: this.state.number, step: this.state.step});
       } else {
@@ -666,7 +666,7 @@ class Consensus {
         value
       }
     }, false);
-    const result = this.server.executeAndBroadcastTransaction(prevoteTx, '', MessageTypes.CONSENSUS);
+    const result = this.server.executeAndBroadcastTransaction(prevoteTx, MessageTypes.CONSENSUS);
     if (ChainUtil.txExecutedSuccessfully(result)) {
       this.addVote(prevoteTx, ConsensusUtil.parseConsensusTransaction(prevoteTx));
     }
@@ -686,7 +686,7 @@ class Consensus {
         value
       }
     }, false);
-    const result = this.server.executeAndBroadcastTransaction(precommitTx, '', MessageTypes.CONSENSUS);
+    const result = this.server.executeAndBroadcastTransaction(precommitTx, MessageTypes.CONSENSUS);
     if (ChainUtil.txExecutedSuccessfully(result)) {
       this.addVote(precommitTx, ConsensusUtil.parseConsensusTransaction(precommitTx));
     }
@@ -736,7 +736,7 @@ class Consensus {
         value: amount
       }
     }, false);
-    return this.server.executeAndBroadcastTransaction(depositTx, '', MessageTypes.TRANSACTION);
+    return this.server.executeAndBroadcastTransaction(depositTx, MessageTypes.TRANSACTION);
   }
 
   hasSeenVote(hash, number) {

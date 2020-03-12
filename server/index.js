@@ -250,7 +250,7 @@ class P2pServer {
               break;
             }
             if (this.node.bc.syncedAfterStartup) {
-              this.consensus.enqueue({id: ConsensusRoutineIds.HANDLE_VOTE, tx: data.transaction, from: address});
+              this.consensus.enqueue({id: ConsensusRoutineIds.HANDLE_VOTE, tx: data.transaction});
             } else {
               logger.info(`\n\nNeeds syncing...\n\n`)
             }
@@ -263,7 +263,7 @@ class P2pServer {
               logger.debug("Already have the transaction in my tx tracker");
               break;
             } else if (this.node.initialized) {
-              this.executeAndBroadcastTransaction(data.transaction, address, MessageTypes.TRANSACTION);
+              this.executeAndBroadcastTransaction(data.transaction, MessageTypes.TRANSACTION);
             } else {
               // Put the tx in the txPool?
             }
@@ -387,19 +387,16 @@ class P2pServer {
     this.sockets.forEach((socket) => this.sendChainSubsection(socket, chainSubsection));
   }
 
-  broadcastTransaction(transaction, from, type) {
+  broadcastTransaction(transaction, type) {
     // if (DEBUG) {
       logger.debug(`SENDING: ${JSON.stringify(transaction)}`);
     // }
-    const fromUrl = get(this.managedPeersInfo[from], 'url');
     this.sockets.forEach((socket) => {
-      if (fromUrl === undefined || socket.url !== fromUrl) {
-        socket.send(JSON.stringify({
-            type,
-            transaction,
-            protoVer: CURRENT_PROTOCOL_VERSION
-          }));
-      }
+      socket.send(JSON.stringify({
+          type,
+          transaction,
+          protoVer: CURRENT_PROTOCOL_VERSION
+        }));
     });
   }
 
@@ -446,7 +443,7 @@ class P2pServer {
     return result;
   }
 
-  executeAndBroadcastTransaction(transactionWithSig, from, type = MessageTypes.TRANSACTION) {
+  executeAndBroadcastTransaction(transactionWithSig, type = MessageTypes.TRANSACTION) {
     if (!transactionWithSig) return null;
     if (type !== MessageTypes.TRANSACTION && type !== MessageTypes.CONSENSUS) {
       logger.error("Invalid transaction message type.");
@@ -464,7 +461,7 @@ class P2pServer {
         }
       })
       if (txListSucceeded.length > 0) {
-        this.broadcastTransaction({ tx_list: txListSucceeded }, from, type);
+        this.broadcastTransaction({ tx_list: txListSucceeded }, type);
       }
       return resultList;
     } else {
@@ -473,7 +470,7 @@ class P2pServer {
       const response = this.executeTransaction(transaction, type);
       logger.debug(`\nRESPONSE: ` + JSON.stringify(response))
       if (ChainUtil.txExecutedSuccessfully(response)) {
-        this.broadcastTransaction(transactionWithSig, from, type);
+        this.broadcastTransaction(transactionWithSig, type);
       }
       return response;
     }
