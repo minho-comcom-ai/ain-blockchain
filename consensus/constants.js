@@ -1,6 +1,5 @@
 
 const ConsensusMessageTypes = {
-  // NEW_ROUND: 'new_round',
   PROPOSE: 'propose',
   PREVOTE: 'prevote',
   PRECOMMIT: 'precommit',
@@ -20,7 +19,11 @@ const ConsensusRoutineIds = {
 }
 
 const ConsensusDefaultValues = {
-  TWO_THIRDS: 2 / 3,
+  TWO_THIRDS: 2 / 3
+}
+
+const ConsensusConsts = {
+  EMPTY_BLOCK: 'EMPTY',
   DAY_MS: 86400000
 }
 
@@ -84,5 +87,6 @@ module.exports = {
   ConsensusSteps,
   ConsensusRoutineIds,
   ConsensusDefaultValues,
+  ConsensusConsts,
   ConsensusRef: new Ref(),
 }

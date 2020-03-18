@@ -139,9 +139,11 @@ class P2pServer {
             this.node.init(true);
             this.node.bc.syncedAfterStartup = true;
             this.consensus.init();
+            this.setIntervalForChainBroadcast();
           } else {
             this.node.init(false);
             this.requestChainSubsection(this.node.bc.lastBlock());
+            this.setIntervalForChainBroadcast();
           }
         }
       } catch (error) {
@@ -154,6 +156,10 @@ class P2pServer {
       this.clearIntervalForTrackerUpdate();
       this.setIntervalForTrackerConnection();
     });
+  }
+
+  setIntervalForChainBroadcast() {
+    setInterval(() => this.broadcastChainSubsection(), 2000);
   }
 
   updateNodeStatusToTracker() {
@@ -294,7 +300,7 @@ class P2pServer {
                 this.requestChainSubsection(this.node.bc.lastBlock());
               }
             } else {
-              logger.info(`\nFailed to merge incoming chain subsection.\nMy consensus state:`, this.consensus.state, `\nNew consensus state:`, data.consensusState)
+              logger.info(`\nFailed to merge incoming chain subsection.\nMy consensus state:` + JSON.stringify(this.consensus.state, null, 2) + `\nNew consensus state:` + JSON.stringify(data.consensusState, null, 2))
               // Still might be able to update consensus state?
               // If the chain is still at number 1, wait for more.
               if (isEndOfChain && data.number > 1) {
@@ -359,20 +365,6 @@ class P2pServer {
     return false;
   }
 
-  sendChainSubsection(socket, chainSubsection, number) {
-    const message = {
-      type: MessageTypes.CHAIN_SUBSECTION,
-      chainSubsection,
-      number,
-      protoVer: CURRENT_PROTOCOL_VERSION
-    }
-    if (this.consensus) {
-      logger.debug(`Sending consensus state along`)
-      message['consensusState'] = this.consensus.state;
-    }
-    socket.send(JSON.stringify(message));
-  }
-
   requestChainSubsection(lastBlock) {
     this.sockets.forEach((socket) => {
       socket.send(JSON.stringify({
@@ -383,8 +375,37 @@ class P2pServer {
     });
   }
 
-  broadcastChainSubsection(chainSubsection) {
-    this.sockets.forEach((socket) => this.sendChainSubsection(socket, chainSubsection));
+  sendChainSubsection(socket, chainSubsection, number) {
+    const message = {
+      type: MessageTypes.CHAIN_SUBSECTION,
+      chainSubsection,
+      number,
+      protoVer: CURRENT_PROTOCOL_VERSION
+    }
+    if (this.consensus) {
+      message['consensusState'] = this.consensus.state;
+    }
+    socket.send(JSON.stringify(message));
+  }
+
+  broadcastChainSubsection() {
+    if (this.node.bc.chain.length === 0) {
+      logger.debug("I don't have a chain.")
+      return;
+    }
+    // Send a chunk of 20 blocks from  your blockchain to the requester.
+    // Requester will continue to request blockchain chunks
+    // until their blockchain height matches the consensus blockchain height
+    const lastBlockNumber = this.node.bc.lastBlockNumber();
+    const referenceBlock = this.node.bc.getBlockByNumber(Math.max(lastBlockNumber - 19, 0));
+    const chainSubsection = this.node.bc.requestBlockchainSection(
+      referenceBlock ? Block.parse(referenceBlock) : null);
+    if (chainSubsection) {
+      logger.debug("## SENDING CHAIN SUBSECTION ##")
+      this.sockets.forEach((socket) => this.sendChainSubsection(socket, chainSubsection, lastBlockNumber));
+    } else {
+      logger.debug("## NO CHAIN SUBSECTION TO SEND ##")
+    }
   }
 
   broadcastTransaction(transaction, type) {

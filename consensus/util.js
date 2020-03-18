@@ -1,7 +1,7 @@
 const seedrandom = require('seedrandom');
 const logger = require('../logger');
 const ChainUtil = require('../chain-util');
-const { ConsensusRef, ConsensusDefaultValues, ConsensusMessageTypes } = require('./constants');
+const { ConsensusRef, ConsensusConsts, ConsensusMessageTypes } = require('./constants');
 const { PredefinedDbPaths, WriteDbOperations } = require('../constants');
 const get = require('lodash/get');
 
@@ -136,8 +136,7 @@ class ConsensusUtil {
       // proposer is set in the global state
       return proposer === address;
     } else if (number === 1) {
-      // TODO (lia): also check the consensus deposit of {addr}
-      return db.getValue(ConsensusRef.baseForNumber(number)) === null;
+      return true;
     }
     // proposer is yet to be set (it's at the beginning of a new round/number)
     const validators = ConsensusUtil.getNextRoundValidatorsFromState(db, number - 1);
@@ -157,7 +156,7 @@ class ConsensusUtil {
 
   static isValidatorForNumber(db, number, address) {
     const registered = db.getValue(`/consensus/number/${number}/validators/${address}`);
-    return registered !== null && registered > 0;
+    return number === 1 || (registered !== null && registered > 0);
   }
 
   static getStakeForNumber(db, number, address) {
@@ -170,7 +169,7 @@ class ConsensusUtil {
         PredefinedDbPaths.DEPOSIT_ACCOUNTS_CONSENSUS,
         address
       ]));
-    if (deposit && deposit.value > 0 && deposit.expire_at > Date.now() + ConsensusDefaultValues.DAY_MS) {
+    if (deposit && deposit.value > 0 && deposit.expire_at > Date.now() + ConsensusConsts.DAY_MS) {
       return deposit.value;
     }
     return 0;

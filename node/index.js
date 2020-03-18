@@ -26,7 +26,7 @@ class Node {
 
   init(isFirstNode) {
     logger.info('Initializing node..');
-    const initialChain = this.bc.init(isFirstNode);
+    const initialChain = this.bc.init(isFirstNode, this.account);
     this.verifyAndAppendChain(initialChain);
     const nonceFromNonceTracker = this.tp.committedNonceTracker[this.account.address];
     this.nonce = nonceFromNonceTracker !== undefined ? nonceFromNonceTracker : 0;
@@ -93,6 +93,16 @@ class Node {
     return Transaction.newTransaction(this.account.private_key, txData);
   }
 
+  filterVerifiedTransactions(transactions) {
+    const filtered = [];
+    transactions.forEach(tx => {
+      if (this.db.verifyTransactionOnSnapshot(tx)) {
+        filtered.push(tx);
+      }
+    })
+    return filtered;
+  }
+
   verifyAndAppendBlock(block) {
     // TODO(lia): verify the last_votes of block
     // 1. Verify block
@@ -157,7 +167,7 @@ class Node {
     if (appended) {
       this.db.setDbToFinalizedDb();
       this.db.executeTransactionList(this.tp.getValidTransactions());
-      this.bc.blockPool[blockWithoutVotes.number] = blockWithoutVotes;
+      this.bc.blockPool.set(blockWithoutVotes.number, blockWithoutVotes);
     }
     return appended;
   }

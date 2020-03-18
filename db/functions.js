@@ -1,6 +1,6 @@
 const logger = require('../logger');
 const { PredefinedDbPaths, FunctionResultCode, DefaultValues } = require('../constants');
-const { ConsensusRef, ConsensusDefaultValues } = require('../consensus/constants');
+const { ConsensusRef, ConsensusConsts } = require('../consensus/constants');
 const ChainUtil = require('../chain-util');
 const {FunctionProperties} = require('../constants')
 const axios = require('axios')
@@ -227,7 +227,7 @@ class Functions {
       const depositExpirationPath = this._getDepositExpirationPath('consensus', proposer);
       const consensusDeposit = this.db.getValue(depositAmountPath);
       const expiration = this.db.getValue(depositExpirationPath);
-      if (consensusDeposit > 0 && expiration > context.currentTime + ConsensusDefaultValues.DAY_MS) {
+      if (number === 1 || (consensusDeposit > 0 && expiration > context.currentTime + ConsensusConsts.DAY_MS)) {
         logger.debug(`Updating proposer, validators and total_at_stake for number ${number}.`)
         this.db.writeDatabase(this._getFullValuePath(
           ChainUtil.parsePath(ConsensusRef.proposer(number))), proposer);

@@ -14,11 +14,11 @@ class Blockchain {
   constructor(blockchainDir) {
     this.chain = [];
     this.blockchainDir = blockchainDir;
-    this.blockPool = {};
+    this.blockPool = new Map();
     this.syncedAfterStartup = false;
   }
 
-  init(isFirstNode) {
+  init(isFirstNode, account) {
     if (this.createBlockchainDir()) {
       if (isFirstNode) {
         logger.info("\n");
@@ -26,7 +26,7 @@ class Blockchain {
         logger.info("## Starting FIRST-NODE blockchain with a GENESIS block... ##");
         logger.info("############################################################");
         logger.info("\n");
-        return [Block.genesis()];
+        return [Block.genesis(account)];
       } else {
         logger.info("\n");
         logger.info("#############################################################");
@@ -103,13 +103,13 @@ class Blockchain {
   }
 
   addNewBlock(block) {
-    logger.info(`\n[blockchain:addNewBlock] block: ${block instanceof Block ? block : JSON.stringify(block)}\n`)
+    logger.info(`\n[blockchain:addNewBlock] block: ${block instanceof Block ? block : JSON.stringify(block, null, 2)}\n`)
     if (!block) {
-      logger.info(`[blockchain.addNewBlock] Block is null`);
+      logger.info(`[blockchain:addNewBlock] Block is null`);
       return false;
     }
     if (block.number != this.lastBlockNumber() + 1) {
-      logger.info(`[blockchain.addNewBlock] Invalid blockchain number: ${block.number}`);
+      logger.info(`[blockchain:addNewBlock] Invalid blockchain number: ${block.number}`);
       return false;
     }
     if (!(block instanceof Block)) {
@@ -126,10 +126,6 @@ class Blockchain {
 
   static isValidChain(chain) {
     const firstBlock = Block.parse(chain[0]);
-    if (firstBlock.hash !== Block.genesis().hash) {
-      logger.error('First block is not the Genesis block');
-      return false;
-    }
     if (!Block.validateHashes(firstBlock)) {
       logger.error('Genesis block is corrupted')
       return false;
@@ -233,11 +229,12 @@ class Blockchain {
       }
       return false;
     }
-    if (chainSubSection[chainSubSection.length - 1].number < this.lastBlockNumber()) {
+    const myLastBlockNumber = this.lastBlockNumber();
+    if (chainSubSection[chainSubSection.length - 1].number < myLastBlockNumber) {
       logger.info('Received chain is of lower block number than current last block number');
       return false;
     }
-    if (chainSubSection[chainSubSection.length - 1].number === this.lastBlockNumber()) {
+    if (chainSubSection[chainSubSection.length - 1].number === myLastBlockNumber) {
       logger.info('Received chain is at the same block number');
       if (!this.syncedAfterStartup) {
         // Regard this situation as if you're synced.
@@ -245,24 +242,32 @@ class Blockchain {
       }
       return false;
     }
-    const firstBlock = Block.parse(chainSubSection[0]);
-    const lastBlockHash = this.lastBlockNumber() >= 0 ? this.lastBlock().hash : null;
-    if (lastBlockHash) {
-      // Case 1: Not a cold start.
-      if (lastBlockHash !== firstBlock.hash) {
-        logger.info(`The last block's hash ${this.lastBlock().hash.substring(0, 5)} ` +
-            `does not match with the first block's hash ${firstBlock.hash.substring(0, 5)}`);
-        return false;
-      }
-    } else {
-      // Case 2: A cold start.
-      if (firstBlock.last_hash !== '') {
-        logger.info(`First block of hash ${firstBlock.hash.substring(0, 5)} ` +
-            `and last hash ${firstBlock.last_hash.substring(0, 5)} is not a genesis block`);
-        return false;
+    const theirFirstBlock = Block.parse(chainSubSection[0]);
+    const theirFistBlockNumber = theirFirstBlock.number;
+    if (theirFistBlockNumber > myLastBlockNumber + 1) {
+      logger.info(`Received chain is too far ahead. My last block's number is ${myLastBlockNumber} and their first block's nubmer is ${theirFistBlockNumber}`);
+      return false;
+    } else if (theirFistBlockNumber === 0 && myLastBlockNumber === -1) {
+      return true;
+    }
+    let i = 0;
+    while (i < chainSubSection.length) {
+      const theirBlock = chainSubSection[i++];
+      const myBlock = this.getBlockByNumber(theirBlock.number - 1);
+      if (theirBlock.number < 1) {
+        logger.debug(`Skipping block of number${theirBlock.number}`);
+        continue;
+      } else if (myBlock) {
+        if (myBlock.hash === theirBlock.last_hash) {
+          logger.debug(`We have a potentially valid chain!`);
+          return true;
+        } else {
+          logger.debug(`We've received an invalid chain!`);
+          return false;
+        }
       }
     }
-    return true;
+    return false;
   }
 
   static loadChain(chainPath) {
@@ -312,13 +317,11 @@ class Blockchain {
   updateBlockPoolForNewBlock(block) {
     if (!block) return;
     const target = block.number;
-    const numbers = Object.keys(this.blockPool).sort();
-    let i = 0;
-    let len = numbers.length;
-    while (i < len && numbers[i] < target) {
-      delete this.blockPool[numbers[i++]];
+    for (const key of this.blockPool.keys()) {
+      if (key < target) {
+        this.blockPool.delete(key);
+      }
     }
-    this.blockPool[target] = block;
   }
 }
 

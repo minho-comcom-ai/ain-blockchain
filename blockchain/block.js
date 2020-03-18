@@ -4,8 +4,9 @@ const ainUtil = require('@ainblockchain/ain-util');
 const logger = require('../logger');
 const ChainUtil = require('../chain-util');
 const Transaction = require('../tx-pool/transaction');
-const {GENESIS_OWNERS, ADDITIONAL_OWNERS, GENESIS_RULES, ADDITIONAL_RULES, PredefinedDbPaths,
-       GenesisToken, GenesisAccounts} = require('../constants');
+const PushId = require('../db/push-id');
+const {GENESIS_OWNERS, ADDITIONAL_OWNERS, GENESIS_RULES, ADDITIONAL_RULES, STAKE,
+       GenesisToken, GenesisAccounts, PredefinedDbPaths, WriteDbOperations} = require('../constants');
 const BlockFilePatterns = require('./block-file-patterns');
 const zipper = require('zip-local');
 const sizeof = require('object-sizeof');
@@ -238,7 +239,26 @@ class Block {
     return (new Transaction({ signature: secondSig, transaction: secondTxData }));
   }
 
-  static getGenesisBlockData() {
+  static getDepositTransaction(myAccount, keyBuffer) {
+    const transaction = {
+      nonce: -1,
+      timestamp: Date.now(),
+      operation: {
+        type: WriteDbOperations.SET_VALUE,
+        ref: ChainUtil.resolveDbPath([
+            PredefinedDbPaths.DEPOSIT_CONSENSUS,
+            myAccount.address,
+            PushId.generate(),
+            PredefinedDbPaths.DEPOSIT_VALUE
+          ]),
+        value: STAKE || 250 // the validator who creates the first block after genesis must stake
+      }
+    }
+    const signature = ainUtil.ecSignTransaction(transaction, keyBuffer);
+    return (new Transaction({ signature, transaction }));
+  }
+
+  static getGenesisBlockData(myAccount) {
     const ownerAccount = GenesisAccounts.owner;
     if (!ownerAccount) {
       throw Error('Missing owner account.');
@@ -248,21 +268,23 @@ class Block {
       throw Error('Missing timestamp.');
     }
     const keyBuffer = Buffer.from(ownerAccount.private_key, 'hex');
+    const myKeyBuffer = Buffer.from(myAccount.private_key, 'hex');
 
     const firstTx = this.getDbSetupTransaction(ownerAccount, timestamp, keyBuffer);
     const secondTx = this.getAccountsSetupTransaction(ownerAccount, timestamp, keyBuffer);
+    const thirdTx = this.getDepositTransaction(myAccount, myKeyBuffer);
 
-    return [firstTx, secondTx];
+    return [firstTx, secondTx, thirdTx];
   }
 
-  static genesis() {
+  static genesis(myAccount) {
     // This is a temporary fix for the genesis block. Code should be modified after
     // genesis block broadcasting feature is implemented.
     const ownerAccount = GenesisAccounts.owner;
     const timestamp = GenesisAccounts.timestamp;
     const lastHash = '';
     const lastVotes = [];
-    const transactions = Block.getGenesisBlockData();
+    const transactions = Block.getGenesisBlockData(myAccount);
     const number = 0;
     const proposer = ownerAccount.address;
     const validators = [];

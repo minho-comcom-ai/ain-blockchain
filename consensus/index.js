@@ -21,6 +21,7 @@ const {
   ConsensusMessageTypes,
   ConsensusSteps,
   ConsensusDefaultValues,
+  ConsensusConsts,
   ConsensusRef,
   ConsensusRoutineIds
 } = require('./constants');
@@ -42,15 +43,24 @@ class Consensus {
 
   init(peerState) {
     this.catchUp(peerState);
-    
     // Stake if we haven't already.
     // TODO (lia): Improve staking / restaking logic
-    const currentStake = ConsensusUtil.getStakeForNumber(this.node.db, this.state.number, this.node.account.address);
+    let currentStake;
+    logger.debug("ACCOUNT:" + typeof STAKE);
+    if (this.state.number === 1) {
+      logger.debug("this.state.number = 1");
+      currentStake = ConsensusUtil.getValidConsensusDeposit(this.node.db, this.node.account.address);
+    } else {
+      logger.debug("this.state.number = " + this.state.number);
+      currentStake = ConsensusUtil.getStakeForNumber(this.node.db, this.state.number, this.node.account.address);
+    }
     logger.info("[Consensus:init] Current stake: " + currentStake);
+    logger.debug("[Consensus:init] Current finalizedDb:" + JSON.stringify(this.node.db.finalizedDb, null, 2))
     if (!currentStake && !!STAKE) {
       this.stake(STAKE);
     } else if (!currentStake && !STAKE) {
       logger.info(`[Consensus:init] Exiting consensus initialization: Node doesn't have any stakes`);
+      this.initialized = true;
       return;
     }
 
@@ -126,20 +136,17 @@ class Consensus {
       return;
     }
     // TODO (lia): store the peer's state separately? (for each peer?)
-    const keys = Object.keys(consensusState.votes).sort();
-    logger.debug("[Consensus:catchUpConsensusState] votes:" + JSON.stringify(consensusState.votes, null, 2))
-    for (let i = 0; i < keys.length; i++) {
-      if (keys[i] >= currentNumber - 1) {
-        const voteList = consensusState.votes[keys[i]];
-        for (let j = 0; j < voteList.length; j++) {
-          const vote = voteList[j];
+    for (let key of Object.keys(consensusState.votes)) {
+      if (Number(key) >= currentNumber - 1) {
+        const voteList = consensusState.votes[key]
+        for (let vote of voteList) {
           if (vote.type === ConsensusMessageTypes.PROPOSE && vote.block !== undefined) {
             vote.tx.block = vote.block;
           }
           this.handleConsensusTransaction(vote.tx);
         }
       } else {
-        logger.debug(`keys[i] (${keys[i]}) < currentNumber (${currentNumber})`)
+        logger.debug(`number (${key}) < currentNumber (${currentNumber})`);
       }
     }
   }
@@ -162,7 +169,7 @@ class Consensus {
     this.state.proposer = null;
     // 2. Apply last_votes in the unfinalized block (candidate) from the blockPool. This is the block
     //    that comes after the last finalized block but I do not have votes for it yet.
-    const candidate = this.node.bc.blockPool[this.state.number];
+    const candidate = this.node.bc.blockPool.get(this.state.number);
     if (lastBlockNumber < 0) {
       throw Error(`[Consensus:catchUp] Failed to catch up: Invalid lastBlockNumber (${lastBlockNumber})`);
     }
@@ -319,14 +326,14 @@ class Consensus {
       throw Error('[Consensus:addVoteListFromBlocks] Trying to start consensus with an invalid chain.');
     }
     // TODO (lia): validate the last_votes
-    lastBlock.last_votes.forEach(vote => {
+    for (let vote of lastBlock.last_votes) {
       this.server.executeTransaction(vote, MessageTypes.CONSENSUS);
       const parsed = ConsensusUtil.parseConsensusTransaction(vote);
       if (parsed.type === ConsensusMessageTypes.PROPOSE) {
         parsed['block'] = secondToLastBlock;
       }
       this.addVote(vote, parsed);
-    })
+    }
   }
 
   addVote(consensusTx, parsedTx) {
@@ -345,7 +352,6 @@ class Consensus {
         item['block'] = parsedTx.block;
       }
       votesForNumber.push(item);
-      logger.debug("[Consensus:addVote] Success:" + JSON.stringify(this.state.votes, null, 2))
       return true;
     }
     // if (DEBUG) {
@@ -356,19 +362,16 @@ class Consensus {
 
   // Applies votes from this.state.votes that are for blocks with numbers >= 'number'.
   applyVotesToDb(number) {
-    const keys = Object.keys(this.state.votes).sort();
-    for (let i = 0; i < keys.length; i++) {
-      if (keys[i] >= number) {
-        const voteList = this.state.votes[keys[i]];
-        for (let j = 0; j < voteList.length; j++) {
-          const vote = voteList[j];
+    for (let key of Object.keys(this.state.votes)) {
+      if (Number(key) >= number) {
+        for (let vote of this.state.votes[key]) {
           if (vote.type === ConsensusMessageTypes.PROPOSE && vote.block !== undefined) {
             vote.tx.block = vote.block;
           }
           this.server.executeTransaction(vote.tx, MessageTypes.CONSENSUS);
         }
       } else {
-        logger.debug(`keys[i] (${keys[i]}) < number (${number})`)
+        logger.debug(`key (${key}) < number (${number})`);
       }
     }
   }
@@ -418,7 +421,7 @@ class Consensus {
         logger.debug(`[Consensus:enterOrStayInPropose] I'm the next proposer. Proposing a block..`);
         // A block may be in the blockPool. 
         // TODO (lia): Validate candidateBlock.
-        const candidateBlock = this.node.bc.blockPool[this.state.number];
+        const candidateBlock = this.node.bc.blockPool.get(this.state.number);
         const proposalBlock = candidateBlock ? candidateBlock : this.createProposalBlock();
         const proposal = this.createProposal(proposalBlock);
         this.server.executeTransaction(proposal, MessageTypes.CONSENSUS);
@@ -552,21 +555,23 @@ class Consensus {
   }
 
   cleanUpVotes(latestNumber) {
-    const numbers = Object.keys(this.state.votes).sort();
-    let i = 0;
-    let len = numbers.length;
-    // Keep votes for blocks with numbers >= latestNumber 
-    while (i < len && numbers[i] < latestNumber) {
-      delete this.state.votes[numbers[i++]];
-    }
+    logger.debug("cleaning up votes.. latestNumber: " + latestNumber + " all numbers: " + Object.keys(this.state.votes));
+    Object.keys(this.state.votes).forEach(key => {
+      if (Number(key) < latestNumber) {
+        delete this.state.votes[key];
+      }
+    })
   }
 
   createProposalBlock() {
-    const transactions = this.node.tp.getValidTransactions();
     const blockNumber = this.state.number; // Use this.node.bc.lastBlockNumber() + 1 ?
+    const transactions = this.node.filterVerifiedTransactions(this.node.tp.getValidTransactions());
     const proposer = this.node.account.address;
     const ref = ConsensusRef.validators(blockNumber);
-    const validators = this.node.db.getValue(ref);
+    const validators = this.node.db.getValue(ref) || {};
+    if (this.state.number === 1) {
+      validators[proposer] = ConsensusUtil.getValidConsensusDeposit(this.node.db, proposer);
+    }
     const lastVoteTxList = this.state.votes[blockNumber - 1] || [];
     const lastVoteTxListSanitized = [];
     logger.debug(`Getting last votes (${blockNumber - 1})` + JSON.stringify(lastVoteTxList, null, 2));
@@ -657,7 +662,7 @@ class Consensus {
     const blockNumber = this.state.number;
     const address = this.node.account.address;
     const value = blockNumber > 1 ?
-        this.node.db.getValue(ConsensusRef.validators(blockNumber))[address]
+        this.node.db.getValue(ConsensusRef.validators(blockNumber))[address] // TODO(lia): use ConsensusUtil.getStakeForNumber()
         : ConsensusUtil.getValidConsensusDeposit(this.node.db, address);
     const prevoteTx = this.node.createTransaction({
       operation: {
@@ -711,7 +716,7 @@ class Consensus {
     const nextRoundValidators = {};
     for (let addr of Object.keys(allDeposits)) {
       const deposit = allDeposits[addr];
-      if (deposit.value > 0 && deposit.expire_at > Date.now() + ConsensusDefaultValues.DAY_MS) {
+      if (deposit.value > 0 && deposit.expire_at > Date.now() + ConsensusConsts.DAY_MS) {
         nextRoundValidators[addr] = deposit.value;
       }
     }

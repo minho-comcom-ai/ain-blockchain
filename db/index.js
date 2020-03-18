@@ -45,6 +45,7 @@ class DB {
   createSnapshot() {
     const snapshot = new DB(this.node);
     snapshot.dbData = JSON.parse(JSON.stringify(this.finalizedDb));
+    snapshot.finalizedDb = JSON.parse(JSON.stringify(this.finalizedDb));
     return snapshot;
   }
 
@@ -56,21 +57,29 @@ class DB {
     this.dbData = JSON.parse(JSON.stringify(this.finalizedDb));
   }
 
+  // Verify a transaction by exeucuting it on a snapshot of this.finalizedDb.
+  // TODO(lia): update to return true if verified successfully and
+  //            return the unchanged snapshot otherwise (to reduce the # of times we create snapshots).
+  verifyTransactionOnSnapshot(tx, snapshot) {
+    if (!snapshot) snapshot = this.createSnapshot();
+    const result = snapshot.executeTransaction(tx);
+    return ChainUtil.txExecutedSuccessfully(result);
+  }
+
   // Verify block transactions by trying to apply them on a snapshot of this.finalizedDb
   // and return updated snapshot if successfully verified, null otherwise.
   verifyBlockOnSnapshot(block, snapshot) {
     if (!snapshot) snapshot = this.createSnapshot();
     if (snapshot.applyBlock(block)) {
-      logger.debug("Block applied to the snapshot.");
+      logger.debug("Block applied to the snapshot. Snapshot:\n" + JSON.stringify(snapshot.dbData, null, 2));
       return snapshot;
     } else {
       logger.debug("Block could not be applied to the snapshot.");
+      logger.debug("Snapshot:" + JSON.stringify(snapshot.dbData, null, 2));
       return null;
     }
   }
 
-  // TODO (lia): Apply txs on a temp snapshot and revert changes if any one of
-  // them failed. Update snapshot if successful.
   applyBlock(block) {
     let lastVotesLen = block.last_votes.length;
     for (let i = 0; i < lastVotesLen; i++) {
@@ -117,33 +126,33 @@ class DB {
     }
   }
 
-  readDatabase(fullPath) {
-    const result = this.getRefForReading(fullPath);
+  readDatabase(fullPath, finalized = false) {
+    const result = this.getRefForReading(fullPath, finalized);
     return result !== undefined ? JSON.parse(JSON.stringify(result)) : null;
   }
 
-  getValue(valuePath) {
+  getValue(valuePath, finalized = false) {
     const parsedPath = ChainUtil.parsePath(valuePath);
     const fullPath = this.getFullPath(parsedPath, PredefinedDbPaths.VALUES_ROOT);
-    return this.readDatabase(fullPath);
+    return this.readDatabase(fullPath, finalized);
   }
 
-  getRule(rulePath) {
+  getRule(rulePath, finalized = false) {
     const parsedPath = ChainUtil.parsePath(rulePath);
     const fullPath = this.getFullPath(parsedPath, PredefinedDbPaths.RULES_ROOT);
-    return this.readDatabase(fullPath);
+    return this.readDatabase(fullPath, finalized);
   }
 
-  getFunction(functionPath) {
+  getFunction(functionPath, finalized = false) {
     const parsedPath = ChainUtil.parsePath(functionPath);
     const fullPath = this.getFullPath(parsedPath, PredefinedDbPaths.FUNCTIONS_ROOT);
-    return this.readDatabase(fullPath);
+    return this.readDatabase(fullPath, finalized);
   }
 
-  getOwner(ownerPath) {
+  getOwner(ownerPath, finalized = false) {
     const parsedPath = ChainUtil.parsePath(ownerPath);
     const fullPath = this.getFullPath(parsedPath, PredefinedDbPaths.OWNERS_ROOT);
-    return this.readDatabase(fullPath);
+    return this.readDatabase(fullPath, finalized);
   }
 
   matchRule(valuePath) {
@@ -358,8 +367,8 @@ class DB {
   /**
    * Returns reference to the input path for reading if exists, otherwise null.
    */
-  getRefForReading(fullPath) {
-    let subData = this.dbData;
+  getRefForReading(fullPath, finalized = false) {
+    let subData = finalized ? this.finalizedDb : this.dbData;
     for (let i = 0; i < fullPath.length; i++) {
       const key = fullPath[i];
       if (!ChainUtil.isDict(subData) || !(key in subData)) {
