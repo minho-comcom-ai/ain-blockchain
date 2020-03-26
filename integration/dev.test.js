@@ -290,7 +290,6 @@ describe('API Tests', () => {
       })
   
       it('match_rule', () => {
-        sleep(200)
         const ref = "/test/test_rule/some/path";
         const request = { ref, protoVer: CURRENT_PROTOCOL_VERSION };
         const body = JSON.parse(syncRequest('GET', `${server1}/match_rule?ref=${ref}`)
@@ -332,7 +331,6 @@ describe('API Tests', () => {
       })
   
       it('match_owner', () => {
-        sleep(200)
         const ref = "/test/test_owner/some/path";
         const request = { ref, protoVer: CURRENT_PROTOCOL_VERSION };
         const body = JSON.parse(syncRequest('GET', `${server1}/match_owner?ref=${ref}`)
