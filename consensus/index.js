@@ -190,6 +190,8 @@ class Consensus {
 
   // TODO(lia): Sign and verify the proposals
   createBlockProposal() {
+    logger.info(`[${LOG_PREFIX}:createBlockProposal] Create new block proposal` +
+                 `(number ${this.state.number})`);
     const lastBlock = this.node.bc.lastBlock();
     const blockNumber = this.state.number; // Should be equal to lastBlock.number + 1
     const transactions = this.node.tp.getValidTransactions();
@@ -339,6 +341,9 @@ class Consensus {
       number,
       ConsensusDbPaths.REGISTER
     ]);
+    console.log('asdfadsfasdfasdfasdfasdf', registerRef);
+    // XXX: Problem recording
+    // /consensus/number/1/register does not have any.. it causes registration = null in the end.
     const registration = this.node.db.getValue(registerRef);
 
     logger.debug(`[${LOG_PREFIX}:${LOG_SUFFIX}] registration (${number}, ${hash}): ${JSON.stringify(registration, null, 2)}`);
